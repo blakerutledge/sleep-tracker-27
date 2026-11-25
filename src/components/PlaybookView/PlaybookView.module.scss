@@ -1,0 +1,70 @@
+.tablist {
+    display: flex;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--fg);
+    gap: 0.25rem;
+}
+
+.tabBtn {
+    flex: none;
+    position: relative;
+    border: none;
+    background: transparent;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--muted);
+    min-block-size: 2.5rem;
+
+    &[aria-selected="true"] {
+        color: var(--fg);
+
+        &::after {
+            content: "";
+            position: absolute;
+            inset: auto 0 0;
+            border-block-end: 3px solid var(--fg);
+        }
+    }
+}
+
+.tabpanelInner {
+    padding-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.tableWrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.plsTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+
+    th,
+    td {
+        border-bottom: 1px solid var(--rule);
+        padding: 0.45rem 0.5rem;
+        text-align: left;
+        vertical-align: top;
+    }
+
+    th {
+        border-bottom: 1px solid var(--fg);
+        color: var(--fg);
+        text-wrap: balance;
+    }
+}
+
+.timerDisplay {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size-adjust: from-font;
+    line-height: 1;
+    font-size: clamp(2.25rem, 1.5rem + 3vw, 3.4rem);
+    font-variant-numeric: tabular-nums;
+}

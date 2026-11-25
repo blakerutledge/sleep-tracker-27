@@ -27,6 +27,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# agent scratch
+.agents/scratch/*
+!.agents/scratch/.gitkeep
+
 # IntelliJ based IDEs
 .idea
 

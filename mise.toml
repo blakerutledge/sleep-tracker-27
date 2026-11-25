@@ -1,0 +1,68 @@
+[tools]
+biome = "2.6.9"
+bun = "1.4.5"
+firebase = "15.37.0"
+gh = "2.105.0"
+git-lfs = "3.8.1"
+
+[settings]
+gpg_verify = false
+activate_aggressive = true
+disable_update_warning = true
+npm.package_manager = "bun"
+experimental = true
+jobs = 10
+task.output = "keep-order"
+use_versions_host = false
+
+[tasks.dev]
+description = "Run Vite dev server"
+run = "bun --bun vite"
+
+[tasks.build]
+description = "Build production bundle into dist/"
+run = "bun --bun vite build"
+
+[tasks.start]
+description = "Preview production build"
+run = "bun --bun vite preview"
+
+[tasks.test]
+description = "Run unit tests"
+run = "bun test"
+
+[tasks.check]
+description = "Run type checking and SCSS validation"
+run = "bun ./.core/dev/checkTs.ts && bunx --bun sass --no-source-map --load-path=. src:.cache/scss-check"
+
+[tasks.format]
+description = "Format and apply safe Biome fixes"
+run = "biome check --write ."
+
+[tasks.lint]
+description = "Check Biome formatting and lints"
+run = "biome check ."
+
+[tasks.validate-raw]
+hide = true
+depends = ["lint", "check", "test"]
+
+[tasks.validate]
+description = "Run full validation suite (lint, check, test)"
+run = "bun ./.core/dev/validate.ts"
+quiet = true
+raw = true
+
+[tasks.deploy]
+description = "Build and deploy Hosting and Firestore rules"
+depends = ["build"]
+run = "firebase deploy"
+
+[tasks."deploy:hosting"]
+description = "Build and deploy Firebase Hosting"
+depends = ["build"]
+run = "firebase deploy --only hosting"
+
+[tasks."deploy:rules"]
+description = "Deploy Firestore rules"
+run = "firebase deploy --only firestore:rules"

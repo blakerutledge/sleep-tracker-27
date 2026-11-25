@@ -1,27 +1,31 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
-import './styles/app.css';
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
 
-async function bootstrap() {
-  if (typeof (globalThis as { Temporal?: unknown }).Temporal === 'undefined') {
-    const mod = await import('temporal-polyfill');
-    (globalThis as { Temporal?: unknown }).Temporal = mod.Temporal;
-  }
+const isV1Route = /^\/v1(?:\/|$)/.test(window.location.pathname)
 
-  if (typeof HTMLElement !== 'undefined' && !Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
-    const { polyfillBodyAndObserve } = await import('@microsoft/focusgroup-polyfill');
-    polyfillBodyAndObserve();
-  }
+const bootstrap = async () => {
+    if (typeof Reflect.get(globalThis, 'Temporal') === 'undefined') {
+        const mod = await import('temporal-polyfill')
+        Reflect.set(globalThis, 'Temporal', mod.Temporal)
+    }
 
-  const rootEl = document.getElementById('root');
-  if (!rootEl) throw new Error('Missing #root container');
+    if (typeof HTMLElement !== 'undefined' && !Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
+        const { polyfillBodyAndObserve } = await import('@microsoft/focusgroup-polyfill')
+        polyfillBodyAndObserve()
+    }
 
-  createRoot(rootEl).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
+    const rootEl = document.getElementById('root')
+    if (!rootEl) throw new Error('Missing #root container')
+
+    const { default: RootComponent } = isV1Route
+        ? await import('./AppV1.tsx')
+        : await import('./App.tsx')
+
+    createRoot(rootEl).render(
+        <StrictMode>
+            <RootComponent />
+        </StrictMode>,
+    )
 }
 
-bootstrap();
+bootstrap()

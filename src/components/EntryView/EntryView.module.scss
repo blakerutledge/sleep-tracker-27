@@ -1,0 +1,115 @@
+.heroZone {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding-bottom: 0.25rem;
+}
+
+.heroKicker {
+    font-size: 0.76rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.heroState {
+    margin: 0;
+    font-size: clamp(2rem, 1.35rem + 3vw, 3.25rem);
+    text-wrap: balance;
+}
+
+.actionGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+}
+
+.actionSub {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.actionBtn {
+    min-block-size: 9.5rem;
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 1.1rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+
+    &:hover {
+        background: rgb(255 255 255 / 0.08);
+    }
+
+    &.isNext {
+        background: var(--fg);
+        color: var(--bg);
+
+        &:hover {
+            background: rgb(255 255 255 / 0.9);
+        }
+
+        .actionSub {
+            color: rgb(0 0 0 / 0.72);
+        }
+    }
+}
+
+.actionTitle {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size-adjust: from-font;
+    line-height: 1.05;
+    font-size: clamp(1.75rem, 1.2rem + 2.5vw, 2.6rem);
+}
+
+.inlineControls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.logList {
+    border-top: 1px solid var(--fg);
+    display: flex;
+    flex-direction: column;
+}
+
+.logRow {
+    width: 100%;
+    text-align: left;
+    border: none;
+    border-bottom: 1px solid var(--rule);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 0.7rem 0.25rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+
+    &:hover {
+        background: rgb(255 255 255 / 0.08);
+    }
+}
+
+.logRowMain {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.logRowTitle {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.logRowTime {
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}

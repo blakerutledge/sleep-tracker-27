@@ -1,0 +1,226 @@
+@font-face {
+    font-family: "Orange Squash";
+    src: url("/orange_squash-latin.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0020-007F, U+00A0-00FF, U+2010-2026, U+2190-2193;
+}
+
+@font-face {
+    font-family: "Orange Squash";
+    src:
+        url("/orange_squash.woff2") format("woff2"),
+        url("/orange_squash.otf") format("opentype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --bg: #000000;
+    --fg: #ffffff;
+    --muted: rgb(255 255 255 / 0.66);
+    --rule: rgb(255 255 255 / 0.28);
+    --font-display: "Orange Squash", Georgia, serif;
+    --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Mono", Consolas, monospace;
+
+    color-scheme: only dark;
+    accent-color: #ffffff;
+    scrollbar-color: #ffffff #000000;
+    font-family: var(--font-mono);
+    line-height: 1.5;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    border-radius: 0;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg);
+    color: var(--fg);
+    min-block-size: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+    color: inherit;
+    background: var(--bg);
+}
+
+button {
+    cursor: pointer;
+}
+
+p,
+li {
+    max-width: 65ch;
+    text-wrap: pretty;
+}
+
+h1,
+h2,
+h3,
+.display-font {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size-adjust: from-font;
+    line-height: 1.08;
+    letter-spacing: 0.01em;
+}
+
+textarea {
+    field-sizing: content;
+    resize: vertical;
+    min-block-size: 2.75rem;
+}
+
+input:not([type="range"]):user-invalid,
+select:user-invalid,
+textarea:user-invalid {
+    border-color: var(--fg);
+    outline: 2px solid var(--fg);
+}
+
+.icon-btn,
+.btn,
+.chip-btn {
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 0.42rem 0.72rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    min-block-size: 2.2rem;
+}
+
+.icon-btn:hover,
+.btn:hover,
+.chip-btn:hover {
+    background: rgb(255 255 255 / 0.12);
+}
+
+.chip-btn.active,
+.btn.primary {
+    background: var(--fg);
+    color: var(--bg);
+}
+
+.btn:disabled,
+.icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.banner {
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    padding: 0.75rem 0.9rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    font-size: 0.85rem;
+}
+
+.unboxed-heading {
+    margin: 0;
+    font-size: clamp(1.35rem, 1.05rem + 1.2vw, 1.9rem);
+    text-wrap: balance;
+}
+
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.input-control {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--fg);
+    padding: 0.55rem 0.75rem;
+    min-block-size: 2.5rem;
+}
+
+.box {
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.box-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.box-title {
+    margin: 0;
+    font-size: clamp(1.15rem, 1rem + 0.75vw, 1.5rem);
+}
+
+.tag {
+    display: inline-block;
+    border: 1px solid var(--fg);
+    padding: 0.12rem 0.45rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tag.inverted {
+    background: var(--fg);
+    color: var(--bg);
+}
+
+.field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+}
+
+.field-label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.row-between {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+}
