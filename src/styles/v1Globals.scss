@@ -1,28 +1,9 @@
-@font-face {
-    font-family: "Orange Squash";
-    src: url("/orange_squash-latin.woff2") format("woff2");
-    font-weight: 400;
-    font-style: normal;
-    font-display: swap;
-    unicode-range: U+0020-007F, U+00A0-00FF, U+2010-2026, U+2190-2193;
-}
-
-@font-face {
-    font-family: "Orange Squash";
-    src:
-        url("/orange_squash.woff2") format("woff2"),
-        url("/orange_squash.otf") format("opentype");
-    font-weight: 400;
-    font-style: normal;
-    font-display: swap;
-}
-
 :root {
     --bg: #000000;
     --fg: #ffffff;
     --muted: rgb(255 255 255 / 0.66);
     --rule: rgb(255 255 255 / 0.28);
-    --font-display: "Orange Squash", Georgia, serif;
+    --font-display: Georgia, serif;
     --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Mono", Consolas, monospace;
 
     color-scheme: only dark;

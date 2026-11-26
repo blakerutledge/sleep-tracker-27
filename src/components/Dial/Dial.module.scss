@@ -1,0 +1,46 @@
+.layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    inline-size: 100%;
+    block-size: 100lvh;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.circle {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    inline-size: var(--dial-size);
+    block-size: var(--dial-size);
+    transform-origin: center top;
+    will-change: transform, opacity;
+    pointer-events: none;
+    touch-action: none;
+
+    &[data-mode="schedule"] {
+        pointer-events: auto;
+        cursor: grab;
+    }
+
+    &[data-dragging="true"] {
+        cursor: grabbing;
+    }
+
+    canvas {
+        display: block;
+        inline-size: 100%;
+        block-size: 100%;
+    }
+}
+
+.rotor {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    inline-size: calc(var(--dial-size) * 1120 / 760);
+    block-size: calc(var(--dial-size) * 1120 / 760);
+    transform: translate(-50%, -50%);
+}

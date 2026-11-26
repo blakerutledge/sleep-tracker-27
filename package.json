@@ -11,14 +11,20 @@
         "@types/bun": "1.4.4",
         "@types/react": "19.3.0",
         "@types/react-dom": "19.3.0",
+        "@types/web-push": "3.6.4",
         "@vitejs/plugin-react": "6.3.0",
         "firebase": "13.3.0",
+        "firebase-admin": "13.3.0",
+        "firebase-functions": "6.3.2",
+        "gsap": "3.15.1",
+        "pixi.js": "8.23.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "sass": "1.108.2",
         "temporal-polyfill": "1.0.8",
         "typescript": "6.0.3",
         "typescript-plugin-css-modules": "5.3.1",
-        "vite": "8.3.8"
+        "vite": "8.3.8",
+        "web-push": "3.6.7"
     }
 }

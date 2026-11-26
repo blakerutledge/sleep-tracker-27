@@ -1,9 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { disablePinchZoom, registerServiceWorker } from '#src/lib/pwa.ts'
 
 const isV1Route = /^\/v1(?:\/|$)/.test(window.location.pathname)
 
 const bootstrap = async () => {
+    disablePinchZoom()
+    registerServiceWorker().catch((error: unknown) => {
+        console.error('Service worker registration failed:', error)
+    })
+
     if (typeof Reflect.get(globalThis, 'Temporal') === 'undefined') {
         const mod = await import('temporal-polyfill')
         Reflect.set(globalThis, 'Temporal', mod.Temporal)

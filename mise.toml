@@ -66,3 +66,12 @@ run = "firebase deploy --only hosting"
 [tasks."deploy:rules"]
 description = "Deploy Firestore rules"
 run = "firebase deploy --only firestore:rules"
+
+[tasks."build:functions"]
+description = "Bundle Firebase Cloud Functions into functions/lib/"
+run = "bun build src/functions/index.ts --outfile functions/lib/index.js --target node --format esm --external firebase-admin --external firebase-functions --external web-push"
+
+[tasks."deploy:functions"]
+description = "Build and deploy Firebase Cloud Functions"
+depends = ["build:functions"]
+run = "firebase deploy --only functions"

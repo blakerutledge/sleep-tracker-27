@@ -1,0 +1,46 @@
+.pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.85rem 1.4rem;
+    border-radius: 1.35rem;
+    background-color: #21233d;
+}
+
+.digits {
+    display: inline-flex;
+    align-items: center;
+    font-size: 1.75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 0.72em;
+    text-align: center;
+}
+
+.colon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 0.36em;
+    text-align: center;
+}
+
+.period {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1.85em;
+    font-size: 1rem;
+    font-weight: 400;
+    color: rgb(255 249 230 / 0.35);
+    line-height: 1;
+    text-align: center;
+}

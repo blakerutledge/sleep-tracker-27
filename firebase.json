@@ -3,9 +3,71 @@
         "rules": "firestore.rules",
         "indexes": "firestore.indexes.json"
     },
+    "functions": [
+        {
+            "source": "functions",
+            "codebase": "default",
+            "predeploy": [
+                "bun build src/functions/index.ts --outfile functions/lib/index.js --target node --format esm --external firebase-admin --external firebase-functions --external web-push"
+            ],
+            "ignore": [
+                "node_modules",
+                ".git",
+                "firebase-debug.log",
+                "firebase-debug.*.log",
+                "*.local"
+            ]
+        }
+    ],
     "hosting": {
         "public": "dist",
         "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+        "headers": [
+            {
+                "source": "/index.html",
+                "headers": [
+                    {
+                        "key": "Cache-Control",
+                        "value": "no-cache, no-store, must-revalidate"
+                    }
+                ]
+            },
+            {
+                "source": "/version.json",
+                "headers": [
+                    {
+                        "key": "Cache-Control",
+                        "value": "no-cache, no-store, must-revalidate"
+                    }
+                ]
+            },
+            {
+                "source": "/sw.js",
+                "headers": [
+                    {
+                        "key": "Cache-Control",
+                        "value": "no-cache, no-store, must-revalidate"
+                    },
+                    {
+                        "key": "Service-Worker-Allowed",
+                        "value": "/"
+                    }
+                ]
+            },
+            {
+                "source": "/manifest.webmanifest",
+                "headers": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/manifest+json; charset=utf-8"
+                    },
+                    {
+                        "key": "Cache-Control",
+                        "value": "no-cache"
+                    }
+                ]
+            }
+        ],
         "rewrites": [
             {
                 "source": "**",

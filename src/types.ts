@@ -116,3 +116,25 @@ export interface PlsInsight {
     chapterRef: string
     metricBadge?: string
 }
+
+export interface AlarmTimer {
+    id: string
+    label: string
+    fireAt: number
+    enabled: boolean
+    fired: boolean
+    createdAt: number
+    updatedAt: number
+    createdBy?: string
+}
+
+export interface PushSubscriptionRecord {
+    id: string
+    endpoint: string
+    keys: {
+        p256dh: string
+        auth: string
+    }
+    userAgent?: string
+    updatedAt: number
+}
