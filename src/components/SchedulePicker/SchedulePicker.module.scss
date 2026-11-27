@@ -1,0 +1,167 @@
+.body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    text-align: left;
+}
+
+.dirtyNote {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--muted);
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.85rem;
+    border: 1px solid var(--border);
+    background-color: var(--surface);
+
+    &[data-active="true"] {
+        border-color: var(--accent);
+    }
+}
+
+.itemMain {
+    flex: 1;
+    min-inline-size: 0;
+    border: none;
+    padding: 0.15rem 0;
+    background: transparent;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.itemName {
+    font-size: 0.95rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.activeBadge {
+    flex-shrink: 0;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    background-color: var(--accent);
+    color: var(--accent-fg);
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.itemActions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-shrink: 0;
+}
+
+.linkAction {
+    border: none;
+    padding: 0.2rem;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.dangerAction {
+    border: none;
+    padding: 0.2rem;
+    background: transparent;
+    color: var(--error);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.renameRow {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.saveAsForm {
+    display: flex;
+    gap: 0.5rem;
+    padding-block-start: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.input {
+    flex: 1;
+    min-inline-size: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.9rem;
+
+    &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+}
+
+.primaryButton {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.4rem;
+    block-size: 2.4rem;
+    padding: 0;
+    border: none;
+    border-radius: 0.75rem;
+    background-color: var(--accent);
+    color: var(--accent-fg);
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+}
+
+.smallPrimary {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.15rem;
+    block-size: 2.15rem;
+    padding: 0;
+    border: none;
+    border-radius: 0.65rem;
+    background-color: var(--accent);
+    color: var(--accent-fg);
+}
+
+.smallSecondary {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.15rem;
+    block-size: 2.15rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    background: transparent;
+    color: var(--fg);
+}

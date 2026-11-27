@@ -1,27 +1,343 @@
 .page {
     position: relative;
     z-index: 1;
-    block-size: 100%;
+    block-size: 100lvh;
     display: flex;
     flex-direction: column;
     align-items: center;
     padding-block-start: var(--header-top);
-    padding-block-end: env(safe-area-inset-bottom);
-    padding-inline: 1.5rem;
+    padding-inline: 1.25rem;
     text-align: center;
     overflow: hidden;
+    pointer-events: none;
+
+    &[data-view="list"] {
+        pointer-events: auto;
+    }
+}
+
+.header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
 }
 
 .title {
     margin: 0;
     display: flex;
     align-items: center;
-    min-block-size: 2.75rem;
-    font-size: 1.5rem;
-    font-weight: 400;
+    min-block-size: 2.25rem;
+    font-size: 1.35rem;
+    font-weight: 600;
     line-height: 1;
+    flex-shrink: 0;
 }
 
-.timePill {
-    margin-block-start: 2rem;
+.scheduleName {
+    margin: -0.1rem 0 0;
+    max-inline-size: 14rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.iconActionButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.05rem;
+    block-size: 2.05rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background-color: var(--surface);
+    color: var(--fg);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    transition:
+        background-color var(--theme-transition),
+        border-color var(--theme-transition),
+        color var(--theme-transition);
+
+    &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+}
+
+.saveActionButton {
+    background-color: var(--accent);
+    border-color: transparent;
+    color: var(--accent-fg);
+}
+
+.topActions {
+    --nav-inset-x: max(0.9rem, calc(env(safe-area-inset-right) + 0.5rem));
+
+    pointer-events: none;
+    position: fixed;
+    top: var(--header-top);
+    right: var(--nav-inset-x);
+    z-index: 20;
+    min-block-size: 2.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+
+    > .iconActionButton {
+        pointer-events: auto;
+    }
+}
+
+.dirtyActions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+
+    &[data-visible="true"] {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
+.addMenuAnchor {
+    --nav-inset-x: max(1rem, calc(env(safe-area-inset-right) + 0.5rem));
+    --fab-inset-y: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+
+    pointer-events: auto;
+    position: fixed;
+    bottom: var(--fab-inset-y);
+    right: var(--nav-inset-x);
+    z-index: 20;
+    transition: opacity 220ms ease;
+
+    &[data-hidden="true"] {
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
+.addButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 3rem;
+    block-size: 3rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background-color: var(--surface);
+    color: var(--fg);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    transition:
+        background-color var(--theme-transition),
+        border-color var(--theme-transition),
+        color var(--theme-transition);
+
+    &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+}
+
+.toolbar {
+    position: relative;
+    margin-block-start: 0.65rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    z-index: 15;
+}
+
+.viewToggle {
+    pointer-events: auto;
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 0.22rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background-color: var(--surface);
+    flex-shrink: 0;
+    transition:
+        background-color var(--theme-transition),
+        border-color var(--theme-transition);
+}
+
+.toggleButton {
+    border: none;
+    border-radius: 999px;
+    padding: 0.35rem 1.15rem;
+    background-color: transparent;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.2;
+    transition:
+        background-color 180ms ease,
+        color 180ms ease;
+
+    &[aria-selected="true"] {
+        background-color: var(--accent);
+        color: var(--accent-fg);
+    }
+}
+
+.listPane {
+    flex: 1;
+    min-block-size: 0;
+    inline-size: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: viewFadeIn 220ms ease both;
+
+    &[data-exiting="true"] {
+        animation: viewFadeOut 220ms ease both;
+        pointer-events: none;
+    }
+}
+
+@keyframes viewFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes viewFadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.bottomDock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-inline: 1.25rem;
+    padding-block-end: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+}
+
+.inspectorSlot {
+    inline-size: 100%;
+    display: flex;
+    justify-content: center;
+    animation: viewFadeIn 220ms ease both;
+
+    &[data-exiting="true"] {
+        animation: viewFadeOut 220ms ease both;
+        pointer-events: none;
+    }
+}
+
+.wedgeBar {
+    pointer-events: auto;
+    inline-size: 100%;
+    max-inline-size: 24rem;
+    padding: 0.95rem 1.1rem;
+    border-radius: 1.25rem;
+    border: 1px solid var(--border);
+    background-color: var(--surface);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    text-align: left;
+    transition:
+        background-color var(--theme-transition),
+        border-color var(--theme-transition);
+}
+
+.wedgeBarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.wedgeTitleGroup {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+}
+
+.wedgeBarTitle {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.2;
+}
+
+.wedgeBarMeta {
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.2;
+}
+
+.wedgeTimes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.65rem;
+}
+
+.wedgeTimeInput {
+    display: block;
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    padding: 0.5rem 0.6rem;
+    background-color: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+
+    &::-webkit-date-and-time-value {
+        text-align: center;
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+}
+
+.wedgeRemoveButton {
+    border: none;
+    padding: 0.3rem 0.5rem;
+    background: transparent;
+    color: var(--error);
+    font-size: 0.82rem;
+    font-weight: 600;
 }

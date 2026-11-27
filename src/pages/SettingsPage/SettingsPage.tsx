@@ -1,5 +1,13 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useAlarmTimers } from '#src/lib/alarms.ts'
+import {
+    CHILD_PRONOUNS_OPTIONS,
+    type ChildProfile,
+    type ChildPronouns,
+    MAX_CHILDREN,
+    useChildren,
+} from '#src/lib/childrenStore.ts'
+import { MAX_DEV_SPEED, MIN_DEV_SPEED, useDevMode } from '#src/lib/devMode.ts'
 import { reloadPwaApp, useAppVersion, useInstallPrompt } from '#src/lib/pwa.ts'
 import { useSunLocation } from '#src/lib/sun.ts'
 import { epochToZonedDateTime } from '#src/lib/temporal.ts'
@@ -28,6 +36,8 @@ export const SettingsPage = () => {
     const installPrompt = useInstallPrompt()
     const appVersion = useAppVersion()
     const sunLocation = useSunLocation()
+    const devMode = useDevMode()
+    const childrenStore = useChildren()
     const {
         authUser,
         authError,
@@ -43,7 +53,50 @@ export const SettingsPage = () => {
     const [label, setLabel] = useState('Put down for nap')
     const [feedback, setFeedback] = useState<FeedbackMessage | null>(null)
     const [debugBusy, setDebugBusy] = useState(false)
+    const [editingChildId, setEditingChildId] = useState<string | 'new' | null>(null)
+    const [childName, setChildName] = useState('')
+    const [childPronouns, setChildPronouns] = useState<ChildPronouns>('they/them')
+    const [childBirthDate, setChildBirthDate] = useState('2027-01-01')
+    const [childBusy, setChildBusy] = useState(false)
     const feedbackTimerRef = useRef<number | null>(null)
+
+    const startEditChild = (child: ChildProfile) => {
+        setEditingChildId(child.id)
+        setChildName(child.name)
+        setChildPronouns(child.pronouns)
+        setChildBirthDate(child.birthDate)
+    }
+
+    const startAddChild = () => {
+        setEditingChildId('new')
+        setChildName('')
+        setChildPronouns('they/them')
+        setChildBirthDate('2027-01-01')
+    }
+
+    const handleSaveChild = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        if (childBusy || !childName.trim()) return
+        setChildBusy(true)
+        try {
+            if (editingChildId === 'new') {
+                await childrenStore.addChild({
+                    name: childName,
+                    pronouns: childPronouns,
+                    birthDate: childBirthDate,
+                })
+            } else if (editingChildId) {
+                await childrenStore.updateChild(editingChildId, {
+                    name: childName,
+                    pronouns: childPronouns,
+                    birthDate: childBirthDate,
+                })
+            }
+            setEditingChildId(null)
+        } finally {
+            setChildBusy(false)
+        }
+    }
 
     const showFeedback = useCallback(
         (section: FeedbackSection, kind: 'status' | 'error', text: string) => {
@@ -147,6 +200,131 @@ export const SettingsPage = () => {
                         )}
                     </div>
                 )}
+
+                <div className={styles.card}>
+                    <div className={styles.toggleRow}>
+                        <div className={styles.updateInfo}>
+                            <h2 className={styles.cardTitle}>Children</h2>
+                            <span className={styles.subtleHint}>
+                                {childrenStore.children.length} of {MAX_CHILDREN} · Schedules are
+                                saved per child
+                            </span>
+                        </div>
+                        {childrenStore.children.length < MAX_CHILDREN &&
+                            editingChildId !== 'new' && (
+                                <button
+                                    type='button'
+                                    className={styles.secondaryButton}
+                                    onClick={startAddChild}>
+                                    + Add
+                                </button>
+                            )}
+                    </div>
+
+                    <div className={styles.childList}>
+                        {childrenStore.children.map((child) => {
+                            const isActive = child.id === childrenStore.activeChildId
+                            return (
+                                <div
+                                    key={child.id}
+                                    className={styles.childRow}
+                                    data-active={isActive}>
+                                    <button
+                                        type='button'
+                                        className={styles.childMain}
+                                        onClick={() => childrenStore.setActiveChildId(child.id)}>
+                                        <span className={styles.childName}>{child.name}</span>
+                                        <span className={styles.subtleHint}>
+                                            {child.pronouns} · {child.birthDate}
+                                        </span>
+                                    </button>
+                                    <div className={styles.childActions}>
+                                        {isActive && (
+                                            <span className={styles.activeChildBadge}>Active</span>
+                                        )}
+                                        <button
+                                            type='button'
+                                            className={styles.linkButton}
+                                            onClick={() => startEditChild(child)}>
+                                            Edit
+                                        </button>
+                                        {childrenStore.children.length > 1 && (
+                                            <button
+                                                type='button'
+                                                className={styles.dangerLinkButton}
+                                                onClick={() =>
+                                                    void childrenStore.deleteChild(child.id)
+                                                }>
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    {editingChildId !== null && (
+                        <form className={styles.childForm} onSubmit={handleSaveChild}>
+                            <label className={styles.field}>
+                                <span className={styles.fieldLabel}>Name</span>
+                                <input
+                                    type='text'
+                                    className={styles.input}
+                                    value={childName}
+                                    onChange={(e) => setChildName(e.target.value)}
+                                    maxLength={40}
+                                    placeholder='Child name'
+                                    required
+                                />
+                            </label>
+
+                            <div className={styles.childFormRow}>
+                                <label className={styles.field}>
+                                    <span className={styles.fieldLabel}>Pronouns</span>
+                                    <select
+                                        className={styles.input}
+                                        value={childPronouns}
+                                        onChange={(e) =>
+                                            setChildPronouns(e.target.value as ChildPronouns)
+                                        }>
+                                        {CHILD_PRONOUNS_OPTIONS.map((option) => (
+                                            <option key={option} value={option}>
+                                                {option}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className={styles.field}>
+                                    <span className={styles.fieldLabel}>Birthday</span>
+                                    <input
+                                        type='date'
+                                        className={styles.dateInput}
+                                        value={childBirthDate}
+                                        onChange={(e) => setChildBirthDate(e.target.value)}
+                                        required
+                                    />
+                                </label>
+                            </div>
+
+                            <div className={styles.buttonRow}>
+                                <button
+                                    type='submit'
+                                    className={styles.primaryButton}
+                                    disabled={childBusy || !childName.trim()}>
+                                    {editingChildId === 'new' ? 'Add Child' : 'Save Child'}
+                                </button>
+                                <button
+                                    type='button'
+                                    className={styles.secondaryButton}
+                                    onClick={() => setEditingChildId(null)}>
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    )}
+                </div>
 
                 <div className={styles.card}>
                     <h2 className={styles.cardTitle}>Push Notifications</h2>
@@ -259,6 +437,76 @@ export const SettingsPage = () => {
                         )}
                     </div>
                     {renderFeedback('location')}
+                </div>
+
+                <div className={styles.card}>
+                    <div className={styles.toggleRow}>
+                        <div className={styles.updateInfo}>
+                            <h2 className={styles.cardTitle}>Dev Mode</h2>
+                            <span className={styles.subtleHint}>
+                                Time simulation and dial overrides
+                            </span>
+                        </div>
+                        <button
+                            type='button'
+                            role='switch'
+                            aria-checked={devMode.settings.enabled}
+                            aria-label='Enable Dev Mode'
+                            className={styles.switch}
+                            onClick={() => devMode.setEnabled(!devMode.settings.enabled)}>
+                            <span className={styles.switchThumb} />
+                        </button>
+                    </div>
+
+                    {devMode.settings.enabled && (
+                        <>
+                            <label className={styles.sliderField}>
+                                <span className={styles.sliderHeader}>
+                                    <span className={styles.fieldLabel}>Speed</span>
+                                    <span className={styles.sliderValue}>
+                                        {devMode.settings.speedMultiplier}x
+                                    </span>
+                                </span>
+                                <input
+                                    type='range'
+                                    className={styles.slider}
+                                    min={MIN_DEV_SPEED}
+                                    max={MAX_DEV_SPEED}
+                                    step={1}
+                                    value={devMode.settings.speedMultiplier}
+                                    onChange={(e) =>
+                                        devMode.setSpeedMultiplier(Number(e.target.value))
+                                    }
+                                />
+                                <span className={styles.sliderScale}>
+                                    <span>1x</span>
+                                    <span>1440x (24h / min)</span>
+                                </span>
+                            </label>
+
+                            <div className={styles.toggleRow}>
+                                <div className={styles.updateInfo}>
+                                    <span className={styles.toggleLabel}>Turn dial in Today</span>
+                                    <span className={styles.subtleHint}>
+                                        Drag the dial in Today view to adjust time manually
+                                    </span>
+                                </div>
+                                <button
+                                    type='button'
+                                    role='switch'
+                                    aria-checked={devMode.settings.manualDialInToday}
+                                    aria-label='Allow turning dial in Today mode'
+                                    className={styles.switch}
+                                    onClick={() =>
+                                        devMode.setManualDialInToday(
+                                            !devMode.settings.manualDialInToday,
+                                        )
+                                    }>
+                                    <span className={styles.switchThumb} />
+                                </button>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <div className={styles.card}>

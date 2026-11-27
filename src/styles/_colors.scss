@@ -1,0 +1,19 @@
+// Palette tokens from Figma (Heaps of Sleeps)
+$blue-100: #0a101c;
+$blue-200: #1b1c33;
+$blue-300: #2b2941;
+
+$blue-700: #a1c4e8;
+$blue-800: #c5dff0;
+$blue-900: #dcf1f7;
+
+$yellow-100: #eeaa2c;
+$yellow-200: #f8cb4e;
+$yellow-300: #fff187;
+
+$purple-100: #854c76;
+$purple-200: #946587;
+$purple-300: #c29fbe;
+
+$blue-dark-gradient: linear-gradient(37deg, $blue-100 14%, $blue-200 50%, $blue-300 85%);
+$blue-light-gradient: linear-gradient(40deg, $blue-700 17%, $blue-800 51%, $blue-900 85%);

@@ -47,8 +47,11 @@ export const isIosDevice = (): boolean => {
     )
 }
 
+const DEFAULT_VAPID_PUBLIC_KEY =
+    'BL8EctTXECYOkLEAid__kuDi0pCkJYTaJ8GaOM_tlO7kRNM3kKqGyYmcjOKp56CLg2SmHYFWTNb0j2MxGN6LK_s'
+
 export const getVapidPublicKey = (): string | null => {
-    const key = import.meta.env.VITE_VAPID_PUBLIC_KEY
+    const key = import.meta.env.VITE_VAPID_PUBLIC_KEY ?? DEFAULT_VAPID_PUBLIC_KEY
     return typeof key === 'string' && key.trim().length > 0 ? key.trim() : null
 }
 

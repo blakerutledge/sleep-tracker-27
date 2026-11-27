@@ -1,0 +1,141 @@
+.scrollBody {
+    pointer-events: auto;
+    margin-block-start: 1.25rem;
+    inline-size: 100%;
+    max-inline-size: 26rem;
+    flex: 1;
+    min-block-size: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding-block-end: max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem));
+    text-align: left;
+
+    &[data-has-action-bar="true"] {
+        padding-block-end: max(5.5rem, calc(env(safe-area-inset-bottom) + 5rem));
+    }
+}
+
+.card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1.15rem;
+    padding: 0.95rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    transition:
+        background-color var(--theme-transition),
+        border-color var(--theme-transition);
+}
+
+.rowHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.labelGroup {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+
+    &[data-state="asleep"] {
+        background-color: rgb(148 101 135 / 0.28);
+        color: var(--fg);
+    }
+
+    &[data-state="awake"] {
+        background-color: rgb(248 203 78 / 0.22);
+        color: var(--fg);
+    }
+}
+
+.eventLabel {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.duration {
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+}
+
+.controls {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.stepButton {
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.45rem 0.75rem;
+    background-color: transparent;
+    color: var(--fg);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.timeInput {
+    display: block;
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.45rem 0.65rem;
+    background-color: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+
+    &::-webkit-date-and-time-value {
+        text-align: center;
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+}
+
+.cardFooter {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.removeButton {
+    border: none;
+    padding: 0.15rem 0.25rem;
+    background: transparent;
+    color: var(--error);
+    font-size: 0.8rem;
+    font-weight: 600;
+}

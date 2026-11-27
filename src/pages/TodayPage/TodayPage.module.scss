@@ -18,56 +18,116 @@
     align-items: center;
     min-block-size: 2.75rem;
     font-size: 1.5rem;
-    font-weight: 400;
+    font-weight: 600;
     line-height: 1;
 }
 
-.timePill {
-    margin-block-start: 2rem;
+.content {
+    flex: 1;
+    inline-size: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(3rem, 7dvh, 4.75rem);
+    padding-block-end: 26dvh;
+}
+
+.primaryStat,
+.secondaryStat {
+    inline-size: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .primaryStat {
-    margin-block-start: 2.75rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.primaryLabel {
-    margin: 0;
-    font-size: clamp(1.5rem, 1.25rem + 1.2vw, 1.85rem);
-    font-weight: 400;
-    line-height: 1.2;
-}
-
-.primaryDuration {
-    margin: 0;
-    font-size: clamp(3.5rem, 2.8rem + 3.2vw, 4.25rem);
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    line-height: 1.1;
+    gap: 0.45rem;
 }
 
 .secondaryStat {
-    margin-block-start: 3.5rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.2rem;
+    gap: 0.25rem;
 }
 
-.secondaryLabel {
+.primaryRow,
+.secondaryRow {
     margin: 0;
-    font-size: clamp(1.1rem, 1rem + 0.6vw, 1.25rem);
-    font-weight: 400;
+    inline-size: 100%;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    column-gap: 0.35em;
+    white-space: nowrap;
+}
+
+.primaryRow {
+    font-size: clamp(1.6rem, 6.8vw, 2.25rem);
+    line-height: 1.15;
+}
+
+.secondaryRow {
+    font-size: clamp(1.1rem, 4.6vw, 1.45rem);
     line-height: 1.2;
 }
 
+.primaryAction {
+    justify-self: end;
+    font-weight: 700;
+    color: var(--primary-stat);
+    transition: color var(--theme-transition);
+}
+
+.secondaryAction {
+    justify-self: end;
+    font-weight: 600;
+    color: var(--secondary-stat);
+    transition: color var(--theme-transition);
+}
+
+.connector {
+    font-weight: 600;
+    color: var(--primary-muted);
+    transition: color var(--theme-transition);
+
+    .secondaryRow & {
+        color: var(--secondary-muted);
+    }
+}
+
+.primaryDuration {
+    justify-self: start;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary-stat);
+    transition: color var(--theme-transition);
+}
+
 .secondaryDuration {
+    justify-self: start;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+    color: var(--secondary-stat);
+    transition: color var(--theme-transition);
+}
+
+.primaryTime {
     margin: 0;
-    font-size: clamp(1.6rem, 1.4rem + 0.8vw, 1.85rem);
+    font-size: clamp(1.1rem, 4.5vw, 1.4rem);
     font-weight: 600;
     letter-spacing: 0.05em;
-    line-height: 1.15;
+    line-height: 1.2;
+    color: var(--primary-muted);
+    transition: color var(--theme-transition);
+}
+
+.secondaryMeta {
+    margin: 0;
+    font-size: clamp(0.9rem, 3.5vw, 1.05rem);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    line-height: 1.2;
+    color: var(--secondary-muted);
+    transition: color var(--theme-transition);
 }

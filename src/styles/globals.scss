@@ -1,3 +1,5 @@
+@use "./colors" as *;
+
 @font-face {
     font-family: "Quicksand";
     src: url("/quicksand-400-latin.woff2") format("woff2");
@@ -15,24 +17,71 @@
 }
 
 :root {
-    --bg: #141526;
-    --fg: #fff9e6;
-    --accent: #ffc200;
-    --muted: rgb(255 249 230 / 0.65);
-    --surface: #21233d;
-    --border: rgb(255 249 230 / 0.14);
+    --blue-100: #{$blue-100};
+    --blue-200: #{$blue-200};
+    --blue-300: #{$blue-300};
+    --blue-700: #{$blue-700};
+    --blue-800: #{$blue-800};
+    --blue-900: #{$blue-900};
+    --yellow-100: #{$yellow-100};
+    --yellow-200: #{$yellow-200};
+    --yellow-300: #{$yellow-300};
+    --purple-100: #{$purple-100};
+    --purple-200: #{$purple-200};
+    --purple-300: #{$purple-300};
+    --blue-dark-gradient: #{$blue-dark-gradient};
+    --blue-light-gradient: #{$blue-light-gradient};
+
+    --bg: #{$blue-200};
+    --bg-gradient: #{$blue-dark-gradient};
+    --fg: #ffffff;
+    --accent: #{$yellow-200};
+    --accent-fg: #{$blue-100};
+    --primary-stat: #{$yellow-300};
+    --primary-muted: #ffffff;
+    --secondary-stat: #{$yellow-100};
+    --secondary-muted: rgb(255 255 255 / 0.7);
+    --muted: rgb(255 255 255 / 0.7);
+    --subtle: rgb(255 255 255 / 0.55);
+    --surface: rgb(43 41 65 / 0.65);
+    --border: rgb(255 255 255 / 0.14);
+    --drawer-bg: rgb(10 16 28 / 0.72);
+    --drawer-title: rgb(238 170 44 / 0.5);
+    --error: #ff8a80;
+    --theme-transition: 600ms ease;
     --font-sans: "Quicksand", system-ui, -apple-system, sans-serif;
     --dial-size: clamp(28rem, 118vw, 42rem);
     --dial-schedule-scale: 0.62;
     --dial-schedule-top: calc(50dvh - var(--dial-size) * var(--dial-schedule-scale) / 2);
-    --header-top: max(2rem, calc(env(safe-area-inset-top) + 1.5rem));
+    --header-top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
 
-    color-scheme: only dark;
+    color-scheme: dark;
     accent-color: var(--accent);
     scrollbar-color: var(--fg) var(--bg);
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.5;
+}
+
+:root[data-theme="day"] {
+    --bg: #{$blue-800};
+    --bg-gradient: #{$blue-light-gradient};
+    --fg: #{$blue-300};
+    --accent: #{$purple-100};
+    --accent-fg: #ffffff;
+    --primary-stat: #{$purple-100};
+    --primary-muted: rgb(43 41 65 / 0.5);
+    --secondary-stat: #{$purple-200};
+    --secondary-muted: rgb(43 41 65 / 0.5);
+    --muted: rgb(43 41 65 / 0.5);
+    --subtle: rgb(43 41 65 / 0.6);
+    --surface: rgb(255 255 255 / 0.45);
+    --border: rgb(43 41 65 / 0.14);
+    --drawer-bg: rgb(161 196 232 / 0.58);
+    --drawer-title: rgb(43 41 65 / 0.5);
+    --error: #b71c1c;
+
+    color-scheme: light;
 }
 
 *,
@@ -52,6 +101,7 @@ html {
     overflow: hidden;
     overscroll-behavior: none;
     background-color: var(--bg);
+    transition: background-color var(--theme-transition);
 }
 
 body {
@@ -65,11 +115,30 @@ body {
     overflow: hidden;
     overscroll-behavior: none;
     background-color: var(--bg);
+    background-image: var(--blue-dark-gradient);
     color: var(--fg);
+    transition:
+        background-color var(--theme-transition),
+        color var(--theme-transition);
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
     user-select: none;
     touch-action: manipulation;
+
+    &::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background-image: var(--blue-light-gradient);
+        opacity: 0;
+        transition: opacity var(--theme-transition);
+    }
+}
+
+:root[data-theme="day"] body::before {
+    opacity: 1;
 }
 
 #root {

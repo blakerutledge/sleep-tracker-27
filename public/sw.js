@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sleep-27-shell-v5'
+const CACHE_NAME = 'sleep-27-shell-v7'
 const APP_SHELL_URLS = [
     '/',
     '/manifest.webmanifest',

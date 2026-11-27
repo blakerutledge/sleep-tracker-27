@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { epochToZonedDateTime, getTimeZoneId } from './temporal.ts'
 
 const LOCATION_KEY = 'sleep-tracker-27:location'
@@ -141,6 +141,15 @@ export const calculateSunTimes = (
     }
 }
 
+export const isDaytime = (
+    minuteOfDay: number,
+    sunriseMinuteOfDay: number,
+    sunsetMinuteOfDay: number,
+): boolean =>
+    sunriseMinuteOfDay <= sunsetMinuteOfDay
+        ? minuteOfDay >= sunriseMinuteOfDay && minuteOfDay < sunsetMinuteOfDay
+        : minuteOfDay >= sunriseMinuteOfDay || minuteOfDay < sunsetMinuteOfDay
+
 export const requestDeviceLocation = (): Promise<GeoLocation> =>
     new Promise((resolve, reject) => {
         if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
@@ -209,7 +218,11 @@ export const useSunLocation = (): SunLocationState => {
         setLocation(getDefaultLocation())
     }, [])
 
-    const sunTimes = calculateSunTimes(Date.now(), location.latitude, location.longitude, timeZone)
+    const todayKey = new Date().toDateString()
+    const sunTimes = useMemo(
+        () => calculateSunTimes(Date.now(), location.latitude, location.longitude, timeZone),
+        [location.latitude, location.longitude, timeZone, todayKey],
+    )
 
     return {
         location,

@@ -102,6 +102,7 @@
         ".husky/": true,
         ".vscode/": false,
         ".cache/": true,
+        ".firebase/": true,
         ".npmrc": true,
         "bunfig.toml": true,
         ".gcloud": true,
