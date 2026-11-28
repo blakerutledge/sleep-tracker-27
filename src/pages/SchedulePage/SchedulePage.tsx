@@ -39,9 +39,8 @@ interface SchedulePageProps {
     onAddNightWake: () => void
     onRemoveSleepWindow: (startEventId: string) => void
     onSave: () => Promise<void>
-    onSaveAsNew: (name: string) => Promise<void>
+    onSaveAsNew: () => Promise<void>
     onLoadSchedule: (scheduleId: string) => Promise<void>
-    onRenameSchedule: (scheduleId: string, name: string) => Promise<void>
     onDeleteSchedule: (scheduleId: string) => Promise<void>
     onDiscard: () => void
 }
@@ -69,12 +68,12 @@ export const SchedulePage = ({
     onSave,
     onSaveAsNew,
     onLoadSchedule,
-    onRenameSchedule,
     onDeleteSchedule,
     onDiscard,
 }: SchedulePageProps) => {
     const [pickerOpen, setPickerOpen] = useState(false)
     const [addMenuOpen, setAddMenuOpen] = useState(false)
+    const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [pendingDelete, setPendingDelete] = useState<{
         startEventId: string
         name: string
@@ -202,7 +201,7 @@ export const SchedulePage = ({
     }, [addMenuOpen])
 
     useEffect(() => {
-        if (!hasActiveCard || pickerOpen || pendingDelete !== null) return
+        if (!hasActiveCard || pickerOpen || pendingDelete !== null || confirmDiscardOpen) return
         const handlePointerDown = (event: PointerEvent) => {
             const target = event.target
             if (!(target instanceof Element)) return
@@ -223,7 +222,7 @@ export const SchedulePage = ({
             window.removeEventListener('pointerdown', handlePointerDown)
             window.removeEventListener('keydown', handleKeyDown)
         }
-    }, [hasActiveCard, onClearSelection, pendingDelete, pickerOpen])
+    }, [confirmDiscardOpen, hasActiveCard, onClearSelection, pendingDelete, pickerOpen])
 
     const handleModalTimeChange = (eventId: string, raw: string) => {
         const parsed = parseTime24hToMinute(raw)
@@ -245,7 +244,7 @@ export const SchedulePage = ({
                     aria-label='Load or manage schedules'
                     title='Load or manage schedules'
                     onClick={() => setPickerOpen(true)}>
-                    <svg width='16' height='16' viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+                    <svg width='19' height='19' viewBox='0 0 24 24' fill='none' aria-hidden='true'>
                         <path
                             d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1M3 7v11a2 2 0 0 0 2 2h13.5a2 2 0 0 0 1.94-1.52l1.5-6A2 2 0 0 0 20 10H6.5a2 2 0 0 0-1.94 1.52L3 18'
                             stroke='currentColor'
@@ -265,8 +264,8 @@ export const SchedulePage = ({
                         tabIndex={isDirty ? 0 : -1}
                         onClick={() => void onSave()}>
                         <svg
-                            width='16'
-                            height='16'
+                            width='19'
+                            height='19'
                             viewBox='0 0 24 24'
                             fill='none'
                             aria-hidden='true'>
@@ -292,10 +291,10 @@ export const SchedulePage = ({
                         aria-label='Discard changes'
                         title='Discard changes'
                         tabIndex={isDirty ? 0 : -1}
-                        onClick={onDiscard}>
+                        onClick={() => setConfirmDiscardOpen(true)}>
                         <svg
-                            width='16'
-                            height='16'
+                            width='19'
+                            height='19'
                             viewBox='0 0 24 24'
                             fill='none'
                             aria-hidden='true'>
@@ -613,13 +612,14 @@ export const SchedulePage = ({
             <SchedulePicker
                 open={pickerOpen}
                 childName={childName}
+                childBirthDate={childBirthDate}
+                draftEvents={events}
                 schedules={schedules}
                 activeScheduleId={activeSchedule.id}
                 isDirty={isDirty}
                 onClose={() => setPickerOpen(false)}
                 onLoad={onLoadSchedule}
                 onSaveAsNew={onSaveAsNew}
-                onRename={onRenameSchedule}
                 onDelete={onDeleteSchedule}
             />
 
@@ -647,6 +647,31 @@ export const SchedulePage = ({
                             onClearSelection()
                         }}>
                         Delete
+                    </button>
+                </div>
+            </ModalDialog>
+            <ModalDialog
+                open={confirmDiscardOpen}
+                onClose={() => setConfirmDiscardOpen(false)}
+                title='Reset schedule'>
+                <p className={styles.confirmCopy}>
+                    Are you sure you want to discard your unsaved changes?
+                </p>
+                <div className={styles.confirmActions}>
+                    <button
+                        type='button'
+                        className={styles.confirmCancelButton}
+                        onClick={() => setConfirmDiscardOpen(false)}>
+                        Cancel
+                    </button>
+                    <button
+                        type='button'
+                        className={styles.confirmDeleteButton}
+                        onClick={() => {
+                            onDiscard()
+                            setConfirmDiscardOpen(false)
+                        }}>
+                        Reset
                     </button>
                 </div>
             </ModalDialog>

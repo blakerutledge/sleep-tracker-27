@@ -429,87 +429,76 @@ export const NavMenu = memo(
                     </span>
                 </button>
 
-                {activeChild && (
+                {activeChild && canSwitchChild && (
                     <div
                         ref={childAnchorRef}
                         className={styles.childAnchor}
                         data-hidden={hideChildSwitcher}
                         aria-hidden={hideChildSwitcher}>
-                        {canSwitchChild ? (
-                            <>
-                                <button
-                                    type='button'
-                                    className={styles.childTrigger}
-                                    data-open={childMenuOpen}
-                                    tabIndex={hideChildSwitcher ? -1 : 0}
-                                    aria-haspopup='menu'
-                                    aria-expanded={childMenuOpen}
-                                    aria-label={`Switch child, currently ${activeChild.name}`}
-                                    onClick={() => setChildMenuOpen((open) => !open)}>
-                                    <span className={styles.childTriggerName}>
-                                        {activeChild.name}
-                                    </span>
-                                    <svg
-                                        className={styles.childChevron}
-                                        width='12'
-                                        height='12'
-                                        viewBox='0 0 24 24'
-                                        fill='none'
-                                        aria-hidden='true'>
-                                        <path
-                                            d='M6 15l6-6 6 6'
-                                            stroke='currentColor'
-                                            strokeWidth='2.4'
-                                            strokeLinecap='round'
-                                            strokeLinejoin='round'
-                                        />
-                                    </svg>
-                                </button>
-                                {childMenuOpen && (
-                                    <div
-                                        className={styles.childDropdown}
-                                        role='menu'
-                                        aria-label='Children'>
-                                        {childrenList.map((child) => {
-                                            const selected = child.id === activeChild.id
-                                            return (
-                                                <button
-                                                    key={child.id}
-                                                    type='button'
-                                                    role='menuitemradio'
-                                                    aria-checked={selected}
-                                                    className={styles.childDropdownItem}
-                                                    onClick={() => {
-                                                        onSelectChild?.(child.id)
-                                                        setChildMenuOpen(false)
-                                                    }}>
-                                                    <span className={styles.childDropdownName}>
-                                                        {child.name}
-                                                    </span>
-                                                    {selected && (
-                                                        <svg
-                                                            width='14'
-                                                            height='14'
-                                                            viewBox='0 0 24 24'
-                                                            fill='none'
-                                                            aria-hidden='true'>
-                                                            <path
-                                                                d='M5 13l4 4L19 7'
-                                                                stroke='currentColor'
-                                                                strokeWidth='2.4'
-                                                                strokeLinecap='round'
-                                                                strokeLinejoin='round'
-                                                            />
-                                                        </svg>
-                                                    )}
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <span className={styles.childNameStatic}>{activeChild.name}</span>
+                        <button
+                            type='button'
+                            className={styles.childTrigger}
+                            data-open={childMenuOpen}
+                            tabIndex={hideChildSwitcher ? -1 : 0}
+                            aria-haspopup='menu'
+                            aria-expanded={childMenuOpen}
+                            aria-label={`Switch child, currently ${activeChild.name}`}
+                            onClick={() => setChildMenuOpen((open) => !open)}>
+                            <span className={styles.childTriggerName}>{activeChild.name}</span>
+                            <svg
+                                className={styles.childChevron}
+                                width='12'
+                                height='12'
+                                viewBox='0 0 24 24'
+                                fill='none'
+                                aria-hidden='true'>
+                                <path
+                                    d='M6 15l6-6 6 6'
+                                    stroke='currentColor'
+                                    strokeWidth='2.4'
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                />
+                            </svg>
+                        </button>
+                        {childMenuOpen && (
+                            <div className={styles.childDropdown} role='menu' aria-label='Children'>
+                                {childrenList.map((child) => {
+                                    const selected = child.id === activeChild.id
+                                    return (
+                                        <button
+                                            key={child.id}
+                                            type='button'
+                                            role='menuitemradio'
+                                            aria-checked={selected}
+                                            className={styles.childDropdownItem}
+                                            onClick={() => {
+                                                onSelectChild?.(child.id)
+                                                setChildMenuOpen(false)
+                                            }}>
+                                            <span className={styles.childDropdownName}>
+                                                {child.name}
+                                            </span>
+                                            {selected && (
+                                                <svg
+                                                    width='14'
+                                                    height='14'
+                                                    viewBox='0 0 24 24'
+                                                    fill='none'
+                                                    aria-hidden='true'>
+                                                    <path
+                                                        d='M5 13l4 4L19 7'
+                                                        stroke='currentColor'
+                                                        strokeWidth='2.4'
+                                                        strokeLinecap='round'
+                                                        strokeLinejoin='round'
+                                                    />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    )
+                                })}
+                            </div>
                         )}
                     </div>
                 )}

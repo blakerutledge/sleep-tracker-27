@@ -17,8 +17,9 @@ export const TodayPage = ({
     events = PLACEHOLDER_SCHEDULE_EVENTS,
 }: TodayPageProps) => {
     const status = getScheduleStatus(minuteOfDay, events)
-    const primaryAction = status?.nextEventType === 'asleep' ? 'Go down' : 'Wake up'
-    const secondaryAction = status?.nextEventType === 'asleep' ? 'Stay down' : 'Stay up'
+    const currentState = status?.nextEventType === 'asleep' ? 'awake' : 'asleep'
+    const primaryLabel = currentState === 'awake' ? 'Awake' : 'Asleep'
+    const secondaryLabel = status?.nextEventType === 'asleep' ? 'asleep' : 'awake'
 
     return (
         <section className={styles.page} aria-label='Today'>
@@ -26,32 +27,30 @@ export const TodayPage = ({
 
             {status && (
                 <div className={styles.content}>
-                    <div className={styles.primaryStat}>
+                    <div className={styles.primaryStat} data-action={currentState}>
+                        <p className={styles.primaryAction}>{primaryLabel}</p>
                         <p className={styles.primaryRow}>
-                            <span className={styles.primaryAction}>{primaryAction}</span>
-                            <span className={styles.connector}>in</span>
+                            <span className={styles.connector}>for</span>
                             <span className={styles.primaryDuration}>
                                 {formatMinutesHuman(status.minutesUntilNext)}
                             </span>
                         </p>
                         <p className={styles.primaryTime}>
-                            at {formatMinuteOfDay12h(status.nextEventMinuteOfDay)}
+                            until {formatMinuteOfDay12h(status.nextEventMinuteOfDay)}
                         </p>
                     </div>
 
-                    <div className={styles.secondaryStat}>
-                        <p className={styles.secondaryMeta}>and then</p>
-                        <p className={styles.secondaryRow}>
-                            <span className={styles.secondaryAction}>{secondaryAction}</span>
-                            <span className={styles.connector}>for</span>
-                            <span className={styles.secondaryDuration}>
-                                {formatMinutesHuman(status.nextDurationMinutes)}
-                            </span>
-                        </p>
-                        <p className={styles.secondaryMeta}>
+                    <p className={styles.secondaryRow} data-action={status.nextEventType}>
+                        <span className={styles.secondaryMeta}>Then</span>{' '}
+                        <span className={styles.secondaryAction}>{secondaryLabel}</span>{' '}
+                        <span className={styles.secondaryMeta}>for</span>{' '}
+                        <span className={styles.secondaryDuration}>
+                            {formatMinutesHuman(status.nextDurationMinutes)}
+                        </span>{' '}
+                        <span className={styles.secondaryMeta}>
                             until {formatMinuteOfDay12h(status.afterNextMinuteOfDay)}
-                        </p>
-                    </div>
+                        </span>
+                    </p>
                 </div>
             )}
         </section>

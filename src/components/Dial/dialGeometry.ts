@@ -26,13 +26,13 @@ export const DIAL_HANDLE_SELECTED_RING_RADIUS =
     DIAL_HANDLE_STROKE_WIDTH * 0.5 +
     DIAL_HANDLE_SELECTED_RING_GAP +
     DIAL_HANDLE_SELECTED_STROKE_WIDTH * 0.5
-export const DIAL_WEDGE_STROKE_WIDTH = 5
+export const DIAL_WEDGE_STROKE_WIDTH = 3
 
 const NOON_MINUTE = 720
 // Fragment shader computes exact polar radius/angle per pixel, so 6-degree chords stay well within
 // the 2px radial pad while halving vertex/index buffer rebuild cost during drag.
 const MAX_RADIANS_PER_SEGMENT = (6 * Math.PI) / 180
-const NIGHT_WAKE_STRIPE_PERIOD_PX = 21
+const NIGHT_WAKE_STRIPE_PERIOD_PX = 16
 const RING_MESH_PAD_PX = 2
 const RING_MESH_INNER_RATIO = Math.max(
     0.05,
@@ -73,8 +73,10 @@ void main() {
     vSweep = aSweep;
     vPrevSelected = aPrevSelected;
     vSelected = aSelected;
-    vec2 worldPos = (uWorldTransformMatrix * uTransformMatrix * vec3(aPosition, 1.0)).xy;
-    vScreenPos = worldPos;
+    mat3 modelView = uWorldTransformMatrix * uTransformMatrix;
+    vec2 worldPos = (modelView * vec3(aPosition, 1.0)).xy;
+    float worldScale = max(length(vec2(modelView[0][0], modelView[0][1])), 0.0001);
+    vScreenPos = (worldPos - vec2(modelView[2][0], modelView[2][1])) / worldScale;
     gl_Position = vec4((uProjectionMatrix * vec3(worldPos, 1.0)).xy, 0.0, 1.0);
 }
 `

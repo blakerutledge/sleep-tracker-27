@@ -10,7 +10,6 @@ import {
     Texture,
 } from 'pixi.js'
 import {
-    type CSSProperties,
     memo,
     type PointerEvent as ReactPointerEvent,
     type Ref,
@@ -38,7 +37,7 @@ import { useDevMode } from '#src/lib/devMode.ts'
 import { useSunLocation } from '#src/lib/sun.ts'
 import { epochToZonedDateTime } from '#src/lib/temporal.ts'
 import type { PageId } from '#src/pages/pages.ts'
-import { DIAL_COLORS, hexToNumber } from '#src/styles/palette.ts'
+import { DIAL_COLORS, hexToNumber, PALETTE } from '#src/styles/palette.ts'
 import styles from './Dial.module.scss'
 import {
     buildDialGeometry,
@@ -46,7 +45,6 @@ import {
     DIAL_ANCHOR_RADIUS,
     DIAL_AXIS_ICON_RADIUS,
     DIAL_AXIS_ICON_SIZE,
-    DIAL_CANVAS_SIZE,
     DIAL_DISC_RADIUS,
     DIAL_HANDLE_ICON_SIZE,
     DIAL_HANDLE_RADIUS,
@@ -93,6 +91,46 @@ interface AxisIcons {
     moon: Sprite
 }
 
+interface TodayIconSlot {
+    container: Container
+    disc: Graphics
+    icon: Sprite
+}
+
+interface TodayIconSlots {
+    prev: TodayIconSlot
+    current: TodayIconSlot
+    upcoming: TodayIconSlot
+}
+
+interface TodayIconSwapState {
+    outgoingState: ScheduleWedge['state']
+    outgoingStartAngle: number
+    outgoingEndAngle: number
+    incomingStartAngle: number
+    incomingStartScale: number
+    incomingStartAlpha: number
+    progress: number
+}
+
+interface TodayIconTextures {
+    awake: Texture
+    asleep: Texture
+}
+
+interface LayoutMetrics {
+    vw: number
+    vh: number
+    dialSize: number
+    todayCenterX: number
+    todayCenterY: number
+    todayScale: number
+    scheduleCenterX: number
+    scheduleCenterY: number
+    scheduleDiameter: number
+    scheduleScale: number
+}
+
 interface HandleNodeEntry {
     eventId: string
     container: Container
@@ -132,12 +170,14 @@ interface ScheduleInteractionState {
 }
 
 const NOON_MINUTE = 720
-const TODAY_SCALE = 2.0
-const TODAY_Y_RATIO = 0.72
+const TODAY_SCALE = 3.0
+const TODAY_Y_RATIO = 0.47
 const SCHEDULE_Y_RATIO = 0.45
 const SCHEDULE_WIDTH_RATIO = 0.96
 const SCHEDULE_MAX_HEIGHT_RATIO = 0.68
-const MAX_CANVAS_BACKING_PX = 1440
+const MIN_DIAL_SIZE_PX = 448
+const MAX_DIAL_SIZE_PX = 672
+const DIAL_SIZE_VW_RATIO = 1.18
 const ICON_RASTER_SIZE = 192
 const TRANSITION_DURATION_SEC = 0.9
 export const DIAL_FADE_DURATION_MS = 220
@@ -152,6 +192,9 @@ const MORNING_WAKE_ANCHOR_FILL = hexToNumber(DIAL_COLORS.morningWakeAnchor.fillC
 const MORNING_WAKE_ANCHOR_ICON = hexToNumber(DIAL_COLORS.morningWakeAnchor.iconColor)
 const BEDTIME_ANCHOR_FILL = hexToNumber(DIAL_COLORS.bedtimeAnchor.fillColor)
 const BEDTIME_ANCHOR_ICON = hexToNumber(DIAL_COLORS.bedtimeAnchor.iconColor)
+const TODAY_AWAKE_ICON_COLOR = hexToNumber(PALETTE.blue700)
+const TODAY_ASLEEP_ICON_COLOR = hexToNumber(PALETTE.purple200)
+const TODAY_ICON_FG_COLOR = hexToNumber(PALETTE.blue100)
 
 const EDGE_SWIPE_GUARD_PX = 36
 const SWIPE_LOCK_PX = 8
@@ -162,12 +205,21 @@ const DIAL_DRAG_SENSITIVITY = 0.35
 const MOMENTUM_DAMPING_PER_MS = 0.009
 const MOMENTUM_STOP_RAD_PER_MS = 0.00004
 const MAX_VELOCITY_RAD_PER_MS = 0.012
-
-const DIAL_ROTOR_STYLE = {
-    '--dial-rotor-ratio': DIAL_CANVAS_SIZE / (DIAL_DISC_RADIUS * 2),
-} as CSSProperties
+const TODAY_ICON_Y_RATIO = 0.26
+const TODAY_ICON_LEAD_MINUTES = 45
+const TODAY_ICON_SWAP_DURATION_SEC = 0.78
+const TODAY_ICON_MIN_SEP_FACTOR = 1.0
+const TODAY_ICON_APPROACH_EXTRA_ANGLE = 0.14
+const TODAY_ICON_EDGE_SCALE = 0.55
+const TODAY_ICON_READY_SCALE = 0.68
+const TODAY_ICON_READY_ALPHA = 0.4
+const TODAY_ICON_BADGE_UNIT_SIZE = 100
+const TODAY_ICON_GLYPH_RATIO = 0.92
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value))
+
+const clamp = (value: number, min: number, max: number): number =>
+    Math.max(min, Math.min(max, value))
 
 const getDialMode = (activePage: PageId, hidden: boolean): DialMode => {
     if (hidden) return 'hidden'
@@ -198,16 +250,12 @@ const shortestAngleDelta = (from: number, to: number): number => {
     return ((((to - from + Math.PI) % tau) + tau) % tau) - Math.PI
 }
 
-const computeCanvasResolution = (dialSize: number): number => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const rotorCssAtToday = dialSize * (DIAL_CANVAS_SIZE / (DIAL_DISC_RADIUS * 2)) * TODAY_SCALE
-    const desiredBackingPx = Math.ceil(rotorCssAtToday * dpr)
-    const clampedBackingPx = Math.min(
-        MAX_CANVAS_BACKING_PX,
-        Math.max(DIAL_CANVAS_SIZE, desiredBackingPx),
-    )
-    return clampedBackingPx / DIAL_CANVAS_SIZE
-}
+const getViewportResolution = (): number => Math.min(window.devicePixelRatio || 1, 2)
+
+const isMinuteInWedge = (minute: number, wedge: ScheduleWedge): boolean =>
+    wedge.endMin > MINUTES_PER_DAY
+        ? minute >= wedge.startMin || minute < wedge.endMin - MINUTES_PER_DAY
+        : minute >= wedge.startMin && minute < wedge.endMin
 
 const loadTintedSvgTexture = async (url: string): Promise<Texture> => {
     const response = await fetch(url)
@@ -254,14 +302,12 @@ const createIconSprite = (texture: Texture, targetHeight: number, tint: number):
 const clientToRotorLocal = (
     clientX: number,
     clientY: number,
-    rect: DOMRect,
+    dialRoot: Container,
     rotationRad: number,
 ): { x: number; y: number } => {
-    const centerX = rect.left + rect.width / 2
-    const centerY = rect.top + rect.height / 2
-    const canvasPerPx = (DIAL_DISC_RADIUS * 2) / Math.max(1, rect.width)
-    const dx = (clientX - centerX) * canvasPerPx
-    const dy = (clientY - centerY) * canvasPerPx
+    const scale = Math.max(0.0001, dialRoot.scale.x)
+    const dx = (clientX - dialRoot.x) / scale
+    const dy = (clientY - dialRoot.y) / scale
     const cos = Math.cos(-rotationRad)
     const sin = Math.sin(-rotationRad)
     return {
@@ -285,9 +331,11 @@ export const Dial = memo(
         onMoveWedge,
         onDragEventIdsChange,
     }: DialProps) => {
-        const circleRef = useRef<HTMLDivElement | null>(null)
+        const layerRef = useRef<HTMLDivElement | null>(null)
+        const hitAreaRef = useRef<HTMLDivElement | null>(null)
         const hostRef = useRef<HTMLDivElement | null>(null)
         const appRef = useRef<Application | null>(null)
+        const dialRootRef = useRef<Container | null>(null)
         const rotorRef = useRef<Container | null>(null)
         const wedgeMeshRef = useRef<Mesh<Geometry, Shader> | null>(null)
         const axisIconsRef = useRef<AxisIcons | null>(null)
@@ -300,14 +348,17 @@ export const Dial = memo(
             bedtimeId: null,
         })
         const handleTexturesRef = useRef<{ up: Texture; down: Texture } | null>(null)
-        const renderRafRef = useRef<number | null>(null)
-        const layoutCacheRef = useRef<{
-            vh: number
-            dialSize: number
-            todayY: number
-            scheduleY: number
-            scheduleScale: number
+        const todayIconsLayerRef = useRef<Container | null>(null)
+        const todayIconSlotsRef = useRef<TodayIconSlots | null>(null)
+        const todayIconTexturesRef = useRef<TodayIconTextures | null>(null)
+        const lastTodayWedgeRef = useRef<{
+            id: string
+            state: ScheduleWedge['state']
         } | null>(null)
+        const todaySwapStateRef = useRef<TodayIconSwapState | null>(null)
+        const todaySwapTweenRef = useRef<gsap.core.Tween | null>(null)
+        const renderRafRef = useRef<number | null>(null)
+        const layoutCacheRef = useRef<LayoutMetrics | null>(null)
 
         const currentRotationRef = useRef<number>(0)
         const progressStateRef = useRef<{ value: number }>({
@@ -395,6 +446,14 @@ export const Dial = memo(
             }
         }, [])
 
+        const renderNow = useCallback(() => {
+            if (renderRafRef.current !== null) {
+                window.cancelAnimationFrame(renderRafRef.current)
+                renderRafRef.current = null
+            }
+            appRef.current?.render()
+        }, [])
+
         const requestRender = useCallback(() => {
             if (renderRafRef.current !== null) return
             renderRafRef.current = window.requestAnimationFrame(() => {
@@ -417,20 +476,275 @@ export const Dial = memo(
             }
         }, [])
 
+        const syncHitAreaLayout = useCallback((metrics: LayoutMetrics, nextMode: DialMode) => {
+            const hitArea = hitAreaRef.current
+            if (!hitArea) return
+            if (nextMode === 'schedule') {
+                hitArea.style.left = `${metrics.scheduleCenterX - metrics.scheduleDiameter / 2}px`
+                hitArea.style.top = `${metrics.scheduleCenterY - metrics.scheduleDiameter / 2}px`
+                hitArea.style.width = `${metrics.scheduleDiameter}px`
+                hitArea.style.height = `${metrics.scheduleDiameter}px`
+                return
+            }
+            if (nextMode === 'today') {
+                const top = Math.max(0, metrics.vh * TODAY_Y_RATIO)
+                hitArea.style.left = '0px'
+                hitArea.style.top = `${top}px`
+                hitArea.style.width = `${metrics.vw}px`
+                hitArea.style.height = `${Math.max(0, metrics.vh - top)}px`
+                return
+            }
+            hitArea.style.width = '0px'
+            hitArea.style.height = '0px'
+        }, [])
+
+        const measureLayoutMetrics = useCallback((): LayoutMetrics => {
+            const layer = layerRef.current
+            const vw = layer?.clientWidth || window.innerWidth
+            const vh = layer?.clientHeight || window.innerHeight
+            const dialSize = clamp(vw * DIAL_SIZE_VW_RATIO, MIN_DIAL_SIZE_PX, MAX_DIAL_SIZE_PX)
+            const todayDiameter = dialSize * TODAY_SCALE
+            const todayCenterX = vw / 2
+            const todayCenterY = vh * TODAY_Y_RATIO + todayDiameter / 2
+            const todayScale = todayDiameter / (DIAL_DISC_RADIUS * 2)
+            const scheduleCenterX = vw / 2
+            const scheduleCenterY = vh * SCHEDULE_Y_RATIO
+            const scheduleDiameter = Math.min(
+                vw * SCHEDULE_WIDTH_RATIO,
+                vh * SCHEDULE_MAX_HEIGHT_RATIO,
+            )
+            const scheduleScale = scheduleDiameter / (DIAL_DISC_RADIUS * 2)
+            const metrics: LayoutMetrics = {
+                vw,
+                vh,
+                dialSize,
+                todayCenterX,
+                todayCenterY,
+                todayScale,
+                scheduleCenterX,
+                scheduleCenterY,
+                scheduleDiameter,
+                scheduleScale,
+            }
+            layoutCacheRef.current = metrics
+            syncHitAreaLayout(metrics, modeRef.current)
+            return metrics
+        }, [syncHitAreaLayout])
+
+        const getLayoutMetrics = useCallback(
+            () => layoutCacheRef.current ?? measureLayoutMetrics(),
+            [measureLayoutMetrics],
+        )
+
+        const resetTodayIconSwap = useCallback(() => {
+            todaySwapTweenRef.current?.kill()
+            todaySwapTweenRef.current = null
+            todaySwapStateRef.current = null
+            lastTodayWedgeRef.current = null
+            const slots = todayIconSlotsRef.current
+            if (slots) {
+                slots.prev.container.visible = false
+            }
+        }, [])
+
+        const syncTodayIcons = useCallback(() => {
+            const layer = todayIconsLayerRef.current
+            const slots = todayIconSlotsRef.current
+            const textures = todayIconTexturesRef.current
+            const dialRoot = dialRootRef.current
+            if (!layer || !slots || !textures || !dialRoot) return
+
+            const todayAlpha = clamp01(1 - progressStateRef.current.value / 0.35) * dialRoot.alpha
+            const activeWedges = wedgesRef.current
+            if (todayAlpha <= 0.001 || activeWedges.length === 0) {
+                layer.visible = false
+                if (todayAlpha <= 0.001) {
+                    resetTodayIconSwap()
+                }
+                return
+            }
+
+            const isTransitioning =
+                progressStateRef.current.value > 0.001 ||
+                transitionTweenRef.current !== null ||
+                scrubbingRef.current
+            const nowMin = isTransitioning
+                ? currentMinuteRef.current
+                : rotationRadToFractionalMinute(currentRotationRef.current)
+            const foundIdx = activeWedges.findIndex((wedge) => isMinuteInWedge(nowMin, wedge))
+            const currIdx = foundIdx === -1 ? 0 : foundIdx
+            const currWedge = activeWedges[currIdx]
+            if (!currWedge) {
+                layer.visible = false
+                return
+            }
+
+            layer.visible = true
+            layer.alpha = todayAlpha
+
+            const { vh, todayCenterX, todayCenterY, todayScale } = getLayoutMetrics()
+            const badgeSizePx = 72
+            const outerRingPx = DIAL_RING_OUTER_RADIUS * todayScale
+            const arcRadiusPx = Math.max(
+                outerRingPx + badgeSizePx * 0.5,
+                todayCenterY - vh * TODAY_ICON_Y_RATIO,
+            )
+            const minSepAngle = (badgeSizePx * TODAY_ICON_MIN_SEP_FACTOR) / Math.max(1, arcRadiusPx)
+
+            const configureSlot = (
+                slot: TodayIconSlot,
+                state: ScheduleWedge['state'],
+                angle: number,
+                scaleMultiplier: number,
+                alpha: number,
+            ) => {
+                if (alpha <= 0.001) {
+                    slot.container.visible = false
+                    return
+                }
+                const tex = state === 'awake' ? textures.awake : textures.asleep
+                if (slot.icon.texture !== tex) {
+                    slot.icon.texture = tex
+                }
+                const glyphScale =
+                    tex.height > 0
+                        ? (TODAY_ICON_BADGE_UNIT_SIZE * TODAY_ICON_GLYPH_RATIO) / tex.height
+                        : 1
+                slot.icon.scale.set(glyphScale)
+                slot.disc.tint =
+                    state === 'awake' ? TODAY_AWAKE_ICON_COLOR : TODAY_ASLEEP_ICON_COLOR
+                slot.container.scale.set(
+                    (badgeSizePx / TODAY_ICON_BADGE_UNIT_SIZE) * scaleMultiplier,
+                )
+                slot.container.position.set(
+                    todayCenterX + Math.sin(angle) * arcRadiusPx,
+                    todayCenterY - Math.cos(angle) * arcRadiusPx,
+                )
+                slot.container.alpha = alpha
+                slot.container.visible = true
+            }
+
+            if (activeWedges.length === 1) {
+                configureSlot(slots.current, currWedge.state, 0, 1, 1)
+                slots.upcoming.container.visible = false
+                slots.prev.container.visible = false
+                return
+            }
+
+            const nextWedge = activeWedges[(currIdx + 1) % activeWedges.length] ?? currWedge
+            const prevWedge =
+                activeWedges[(currIdx - 1 + activeWedges.length) % activeWedges.length] ?? currWedge
+            const minutesUntilNext =
+                (nextWedge.startMin - nowMin + MINUTES_PER_DAY) % MINUTES_PER_DAY
+
+            const prevTracked = lastTodayWedgeRef.current
+            if (!isTransitioning && prevTracked && prevTracked.id !== currWedge.id) {
+                todaySwapTweenRef.current?.kill()
+                const isForward = prevWedge.id === prevTracked.id
+                const dir = isForward ? 1 : -1
+                const swapState: TodayIconSwapState = {
+                    outgoingState: prevTracked.state,
+                    outgoingStartAngle: 0,
+                    outgoingEndAngle: -dir * (minSepAngle * 1.35),
+                    incomingStartAngle: dir * minSepAngle,
+                    incomingStartScale: TODAY_ICON_READY_SCALE,
+                    incomingStartAlpha: TODAY_ICON_READY_ALPHA,
+                    progress: 0,
+                }
+                todaySwapStateRef.current = swapState
+                todaySwapTweenRef.current = gsap.to(swapState, {
+                    progress: 1,
+                    duration: TODAY_ICON_SWAP_DURATION_SEC,
+                    ease: 'power3.inOut',
+                    onUpdate: () => {
+                        syncTodayIcons()
+                        renderNow()
+                    },
+                    onComplete: () => {
+                        todaySwapTweenRef.current = null
+                        todaySwapStateRef.current = null
+                        syncTodayIcons()
+                        renderNow()
+                    },
+                })
+            }
+
+            if (!isTransitioning) {
+                lastTodayWedgeRef.current = {
+                    id: currWedge.id,
+                    state: currWedge.state,
+                }
+            }
+
+            const swapState = todaySwapStateRef.current
+            const isSwapping = Boolean(swapState && swapState.progress < 0.999)
+            if (isSwapping && swapState) {
+                const t = swapState.progress
+                const incomingAngle = swapState.incomingStartAngle * (1 - t)
+                const incomingScale =
+                    swapState.incomingStartScale + (1 - swapState.incomingStartScale) * t
+                const incomingAlpha =
+                    swapState.incomingStartAlpha + (1 - swapState.incomingStartAlpha) * t
+                configureSlot(
+                    slots.current,
+                    currWedge.state,
+                    incomingAngle,
+                    incomingScale,
+                    incomingAlpha,
+                )
+
+                const outgoingAngle =
+                    swapState.outgoingStartAngle +
+                    (swapState.outgoingEndAngle - swapState.outgoingStartAngle) * t
+                const outgoingScale = 1 - (1 - TODAY_ICON_EDGE_SCALE) * t
+                const outgoingAlpha = 1 - t
+                configureSlot(
+                    slots.prev,
+                    swapState.outgoingState,
+                    outgoingAngle,
+                    outgoingScale,
+                    outgoingAlpha,
+                )
+                slots.upcoming.container.visible = false
+                return
+            }
+
+            configureSlot(slots.current, currWedge.state, 0, 1, 1)
+            slots.prev.container.visible = false
+
+            const enterProgress = clamp01(1 - minutesUntilNext / TODAY_ICON_LEAD_MINUTES)
+            if (enterProgress > 0.001) {
+                const upcomingAngle =
+                    minSepAngle + (1 - enterProgress) * TODAY_ICON_APPROACH_EXTRA_ANGLE
+                const upScale =
+                    TODAY_ICON_EDGE_SCALE +
+                    (TODAY_ICON_READY_SCALE - TODAY_ICON_EDGE_SCALE) * enterProgress
+                const upAlpha = TODAY_ICON_READY_ALPHA * enterProgress
+                configureSlot(slots.upcoming, nextWedge.state, upcomingAngle, upScale, upAlpha)
+            } else {
+                slots.upcoming.container.visible = false
+            }
+        }, [getLayoutMetrics, renderNow, resetTodayIconSwap])
+
         const applyRotationAndRender = useCallback(
-            (rad: number, emitFromRotation = false) => {
+            (rad: number, emitFromRotation = false, immediate = false) => {
                 currentRotationRef.current = rad
                 const rotor = rotorRef.current
                 if (rotor) {
                     rotor.rotation = rad
                 }
                 syncUprightIcons(rad)
-                requestRender()
+                syncTodayIcons()
+                if (immediate) {
+                    renderNow()
+                } else {
+                    requestRender()
+                }
                 if (emitFromRotation) {
                     emitMinuteForRad(rad)
                 }
             },
-            [emitMinuteForRad, requestRender, syncUprightIcons],
+            [emitMinuteForRad, renderNow, requestRender, syncTodayIcons, syncUprightIcons],
         )
 
         const syncSelectedHandleRings = useCallback(() => {
@@ -674,50 +988,35 @@ export const Dial = memo(
             requestRender()
         }, [requestRender, syncAnchorAlphas])
 
-        const measureLayoutMetrics = useCallback(() => {
-            const vw = window.innerWidth
-            const vh = window.innerHeight
-            const dialSize = circleRef.current?.offsetWidth || Math.min(vw * 1.18, 672)
-            // With transform-origin: center, top edge sits at y + dialSize * (1 - scale) / 2.
-            const todayY = vh * TODAY_Y_RATIO + (dialSize * (TODAY_SCALE - 1)) / 2
-            const scheduleY = vh * SCHEDULE_Y_RATIO - dialSize / 2
-            const scheduleDiameter = Math.min(
-                vw * SCHEDULE_WIDTH_RATIO,
-                vh * SCHEDULE_MAX_HEIGHT_RATIO,
-            )
-            const scheduleScale = scheduleDiameter / Math.max(1, dialSize)
-            const metrics = { vh, dialSize, todayY, scheduleY, scheduleScale }
-            layoutCacheRef.current = metrics
-            return metrics
-        }, [])
-
-        const getLayoutMetrics = useCallback(
-            () => layoutCacheRef.current ?? measureLayoutMetrics(),
-            [measureLayoutMetrics],
+        const applySelectionVisuals = useCallback(
+            (immediate = false) => {
+                const sel = clamp01(selectionStateRef.current.selection)
+                const dim = clamp01(selectionStateRef.current.dim)
+                const handleProgress = clamp01(selectionStateRef.current.handleProgress)
+                const uniforms = wedgeMeshRef.current?.shader?.resources?.selectionUniforms as
+                    | { uniforms: { uSelectionProgress: number; uDimProgress: number } }
+                    | undefined
+                if (uniforms) {
+                    uniforms.uniforms.uSelectionProgress = sel
+                    uniforms.uniforms.uDimProgress = dim
+                }
+                const scheduleOverlayAlpha = clamp01((progressStateRef.current.value - 0.35) / 0.65)
+                if (handlesLayerRef.current) {
+                    handlesLayerRef.current.alpha = scheduleOverlayAlpha * handleProgress
+                }
+                if (anchorsLayerRef.current) {
+                    anchorsLayerRef.current.alpha = scheduleOverlayAlpha
+                }
+                syncHandlePositions()
+                syncAnchorAlphas()
+                if (immediate) {
+                    renderNow()
+                } else {
+                    requestRender()
+                }
+            },
+            [renderNow, requestRender, syncAnchorAlphas, syncHandlePositions],
         )
-
-        const applySelectionVisuals = useCallback(() => {
-            const sel = clamp01(selectionStateRef.current.selection)
-            const dim = clamp01(selectionStateRef.current.dim)
-            const handleProgress = clamp01(selectionStateRef.current.handleProgress)
-            const uniforms = wedgeMeshRef.current?.shader?.resources?.selectionUniforms as
-                | { uniforms: { uSelectionProgress: number; uDimProgress: number } }
-                | undefined
-            if (uniforms) {
-                uniforms.uniforms.uSelectionProgress = sel
-                uniforms.uniforms.uDimProgress = dim
-            }
-            const scheduleOverlayAlpha = clamp01((progressStateRef.current.value - 0.35) / 0.65)
-            if (handlesLayerRef.current) {
-                handlesLayerRef.current.alpha = scheduleOverlayAlpha * handleProgress
-            }
-            if (anchorsLayerRef.current) {
-                anchorsLayerRef.current.alpha = scheduleOverlayAlpha
-            }
-            syncHandlePositions()
-            syncAnchorAlphas()
-            requestRender()
-        }, [requestRender, syncAnchorAlphas, syncHandlePositions])
 
         const rebuildWedgeMesh = useCallback(
             (
@@ -740,21 +1039,32 @@ export const Dial = memo(
         )
 
         const applyProgress = useCallback(
-            (progress: number, syncRotation: boolean, preserveOpacity = false) => {
+            (
+                progress: number,
+                syncRotation: boolean,
+                preserveOpacity = false,
+                immediate = false,
+            ) => {
                 const p = clamp01(progress)
                 progressStateRef.current.value = p
-                const circle = circleRef.current
-                if (circle) {
-                    const { todayY, scheduleY, scheduleScale } = getLayoutMetrics()
-                    const y = todayY + (scheduleY - todayY) * p
-                    const scale = TODAY_SCALE + (scheduleScale - TODAY_SCALE) * p
-                    gsap.set(circle, {
-                        xPercent: -50,
-                        y,
-                        scale,
-                        ...(preserveOpacity ? {} : { opacity: 1 }),
-                        force3D: true,
-                    })
+                const dialRoot = dialRootRef.current
+                if (dialRoot) {
+                    const {
+                        todayCenterX,
+                        todayCenterY,
+                        todayScale,
+                        scheduleCenterX,
+                        scheduleCenterY,
+                        scheduleScale,
+                    } = getLayoutMetrics()
+                    const x = todayCenterX + (scheduleCenterX - todayCenterX) * p
+                    const y = todayCenterY + (scheduleCenterY - todayCenterY) * p
+                    const scale = todayScale + (scheduleScale - todayScale) * p
+                    dialRoot.position.set(x, y)
+                    dialRoot.scale.set(scale)
+                    if (!preserveOpacity) {
+                        dialRoot.alpha = 1
+                    }
                 }
                 const scheduleOverlayAlpha = clamp01((p - 0.35) / 0.65)
                 if (handlesLayerRef.current) {
@@ -767,12 +1077,17 @@ export const Dial = memo(
                 if (syncRotation) {
                     const todayRad = getTodayRotationRad(currentMinuteRef.current)
                     const delta = shortestAngleDelta(todayRad, 0)
-                    applyRotationAndRender(todayRad + delta * p, false)
+                    applyRotationAndRender(todayRad + delta * p, false, immediate)
                 } else {
-                    requestRender()
+                    syncTodayIcons()
+                    if (immediate) {
+                        renderNow()
+                    } else {
+                        requestRender()
+                    }
                 }
             },
-            [applyRotationAndRender, getLayoutMetrics, requestRender],
+            [applyRotationAndRender, getLayoutMetrics, renderNow, requestRender, syncTodayIcons],
         )
 
         const killAnimations = useCallback(() => {
@@ -780,40 +1095,56 @@ export const Dial = memo(
             transitionTweenRef.current = null
             hideTweenRef.current?.kill()
             hideTweenRef.current = null
+            resetTodayIconSwap()
             if (momentumRafRef.current !== null) {
                 window.cancelAnimationFrame(momentumRafRef.current)
                 momentumRafRef.current = null
             }
-        }, [])
+        }, [resetTodayIconSwap])
 
         const animateTo = useCallback(
             (target: DialMode, durationSec?: number) => {
                 killAnimations()
                 scrubbingRef.current = false
-                const circle = circleRef.current
-                if (!circle) return
+                const dialRoot = dialRootRef.current
+                if (!dialRoot) return
 
                 if (target === 'hidden') {
-                    hideTweenRef.current = gsap.to(circle, {
-                        opacity: 0,
+                    hideTweenRef.current = gsap.to(dialRoot, {
+                        alpha: 0,
                         duration: durationSec ?? HIDDEN_DURATION_SEC,
                         ease: 'power2.out',
-                        force3D: true,
+                        onUpdate: () => {
+                            syncTodayIcons()
+                            renderNow()
+                        },
+                        onComplete: () => {
+                            hideTweenRef.current = null
+                            syncTodayIcons()
+                            renderNow()
+                        },
                     })
                     return
                 }
 
                 const targetProgress = target === 'schedule' ? 1 : 0
-                const currentOpacity = Number(gsap.getProperty(circle, 'opacity'))
 
                 // Returning from hidden: snap layout in place and fade in cleanly without sliding.
-                if (currentOpacity < 0.05) {
-                    applyProgress(targetProgress, true, true)
-                    hideTweenRef.current = gsap.to(circle, {
-                        opacity: 1,
+                if (dialRoot.alpha < 0.05) {
+                    applyProgress(targetProgress, true, true, true)
+                    hideTweenRef.current = gsap.to(dialRoot, {
+                        alpha: 1,
                         duration: durationSec ?? HIDDEN_DURATION_SEC,
                         ease: 'power2.out',
-                        force3D: true,
+                        onUpdate: () => {
+                            syncTodayIcons()
+                            renderNow()
+                        },
+                        onComplete: () => {
+                            hideTweenRef.current = null
+                            syncTodayIcons()
+                            renderNow()
+                        },
                     })
                     return
                 }
@@ -825,9 +1156,8 @@ export const Dial = memo(
                     Math.max(0.25, TRANSITION_DURATION_SEC * Math.max(0.35, distance))
 
                 const startRad = currentRotationRef.current
-                const targetRad =
+                const getTargetRad = () =>
                     target === 'schedule' ? 0 : getTodayRotationRad(currentMinuteRef.current)
-                const deltaRad = shortestAngleDelta(startRad, targetRad)
                 const tweenState = { t: 0 }
 
                 transitionTweenRef.current = gsap.to(tweenState, {
@@ -836,17 +1166,29 @@ export const Dial = memo(
                     ease: 'power3.out',
                     onUpdate: () => {
                         const p = startProgress + (targetProgress - startProgress) * tweenState.t
-                        applyProgress(p, false)
-                        applyRotationAndRender(startRad + deltaRad * tweenState.t, false)
+                        const liveTargetRad = getTargetRad()
+                        const rad =
+                            startRad + shortestAngleDelta(startRad, liveTargetRad) * tweenState.t
+                        currentRotationRef.current = rad
+                        if (rotorRef.current) {
+                            rotorRef.current.rotation = rad
+                        }
+                        syncUprightIcons(rad)
+                        applyProgress(p, false, false, true)
                     },
                     onComplete: () => {
                         transitionTweenRef.current = null
-                        applyProgress(targetProgress, false)
-                        applyRotationAndRender(targetRad, false)
+                        const finalRad = getTargetRad()
+                        currentRotationRef.current = finalRad
+                        if (rotorRef.current) {
+                            rotorRef.current.rotation = finalRad
+                        }
+                        syncUprightIcons(finalRad)
+                        applyProgress(targetProgress, false, false, true)
                     },
                 })
             },
-            [applyProgress, applyRotationAndRender, killAnimations],
+            [applyProgress, killAnimations, renderNow, syncTodayIcons, syncUprightIcons],
         )
 
         useImperativeHandle(
@@ -855,7 +1197,7 @@ export const Dial = memo(
                 scrubTo: (progress: number) => {
                     killAnimations()
                     scrubbingRef.current = true
-                    applyProgress(progress, false)
+                    applyProgress(progress, false, false, true)
                 },
                 animateTo,
             }),
@@ -944,15 +1286,15 @@ export const Dial = memo(
             const loadedTextures: Texture[] = []
 
             const init = async () => {
-                const { dialSize } = measureLayoutMetrics()
+                const metrics = measureLayoutMetrics()
                 await app.init({
-                    width: DIAL_CANVAS_SIZE,
-                    height: DIAL_CANVAS_SIZE,
+                    width: metrics.vw,
+                    height: metrics.vh,
                     backgroundAlpha: 0,
                     antialias: true,
-                    autoDensity: false,
+                    autoDensity: true,
                     autoStart: false,
-                    resolution: computeCanvasResolution(dialSize),
+                    resolution: getViewportResolution(),
                     preference: 'webgl',
                     powerPreference: 'high-performance',
                 })
@@ -966,8 +1308,10 @@ export const Dial = memo(
                 appRef.current = app
                 host.appendChild(app.canvas)
 
+                const dialRoot = new Container()
+                dialRootRef.current = dialRoot
+
                 const rotor = new Container()
-                rotor.position.set(DIAL_CANVAS_SIZE / 2, DIAL_CANVAS_SIZE / 2)
                 rotorRef.current = rotor
 
                 const geometry = buildDialGeometry(
@@ -989,40 +1333,65 @@ export const Dial = memo(
                 anchorsLayerRef.current = anchorsLayer
 
                 rotor.addChild(wedgeMesh, handlesLayer, anchorsLayer)
-                app.stage.addChild(rotor)
+                dialRoot.addChild(rotor)
+
+                const todayIconsLayer = new Container()
+                todayIconsLayer.visible = false
+                todayIconsLayerRef.current = todayIconsLayer
+
+                app.stage.addChild(dialRoot, todayIconsLayer)
 
                 if (modeRef.current === 'hidden') {
-                    const circle = circleRef.current
-                    if (circle) {
-                        const { todayY } = getLayoutMetrics()
-                        gsap.set(circle, {
-                            xPercent: -50,
-                            y: todayY,
-                            scale: TODAY_SCALE,
-                            opacity: 0,
-                            force3D: true,
-                        })
-                    }
+                    dialRoot.position.set(metrics.todayCenterX, metrics.todayCenterY)
+                    dialRoot.scale.set(metrics.todayScale)
+                    dialRoot.alpha = 0
                 } else {
-                    applyProgress(modeRef.current === 'schedule' ? 1 : 0, true)
+                    applyProgress(modeRef.current === 'schedule' ? 1 : 0, true, false, true)
                 }
 
-                const [sunTex, moonTex, upTex, downTex] = await Promise.all([
+                const [sunTex, moonTex, upTex, downTex, awakeTex, asleepTex] = await Promise.all([
                     loadTintedSvgTexture('/icons/sun.svg'),
                     loadTintedSvgTexture('/icons/moon.svg'),
                     loadTintedSvgTexture('/icons/up.svg'),
                     loadTintedSvgTexture('/icons/down.svg'),
+                    loadTintedSvgTexture('/icons/awake.svg'),
+                    loadTintedSvgTexture('/icons/asleep.svg'),
                 ])
 
                 if (cancelled) {
-                    for (const tex of [sunTex, moonTex, upTex, downTex]) {
+                    for (const tex of [sunTex, moonTex, upTex, downTex, awakeTex, asleepTex]) {
                         tex.destroy(true)
                     }
                     return
                 }
 
-                loadedTextures.push(sunTex, moonTex, upTex, downTex)
+                loadedTextures.push(sunTex, moonTex, upTex, downTex, awakeTex, asleepTex)
                 handleTexturesRef.current = { up: upTex, down: downTex }
+                todayIconTexturesRef.current = { awake: awakeTex, asleep: asleepTex }
+
+                const makeTodaySlot = (): TodayIconSlot => {
+                    const container = new Container()
+                    container.visible = false
+                    const disc = new Graphics()
+                        .circle(0, 0, TODAY_ICON_BADGE_UNIT_SIZE / 2)
+                        .fill({ color: 0xffffff })
+                    const icon = new Sprite(awakeTex)
+                    icon.anchor.set(0.5)
+                    icon.tint = TODAY_ICON_FG_COLOR
+                    container.addChild(disc, icon)
+                    return { container, disc, icon }
+                }
+                const todaySlots: TodayIconSlots = {
+                    prev: makeTodaySlot(),
+                    current: makeTodaySlot(),
+                    upcoming: makeTodaySlot(),
+                }
+                todayIconSlotsRef.current = todaySlots
+                todayIconsLayer.addChild(
+                    todaySlots.prev.container,
+                    todaySlots.upcoming.container,
+                    todaySlots.current.container,
+                )
 
                 const axisIcons: AxisIcons = {
                     sun: createIconSprite(sunTex, DIAL_AXIS_ICON_SIZE, NOON_SUN_ICON_COLOR),
@@ -1038,27 +1407,22 @@ export const Dial = memo(
                 rebuildHandles()
                 rebuildAnchors()
                 applySelectionVisuals()
-                applyRotationAndRender(currentRotationRef.current)
+                applyRotationAndRender(currentRotationRef.current, false, true)
             }
 
             init()
 
             const handleResize = () => {
-                const { dialSize } = measureLayoutMetrics()
+                const metrics = measureLayoutMetrics()
                 const currentApp = appRef.current
                 if (currentApp) {
-                    const nextResolution = computeCanvasResolution(dialSize)
-                    if (Math.abs(currentApp.renderer.resolution - nextResolution) > 0.05) {
-                        currentApp.renderer.resize(
-                            DIAL_CANVAS_SIZE,
-                            DIAL_CANVAS_SIZE,
-                            nextResolution,
-                        )
-                        requestRender()
-                    }
+                    const nextResolution = getViewportResolution()
+                    currentApp.renderer.resize(metrics.vw, metrics.vh, nextResolution)
                 }
                 if (modeRef.current !== 'hidden') {
-                    applyProgress(progressStateRef.current.value, false)
+                    applyProgress(progressStateRef.current.value, false, false, true)
+                } else {
+                    renderNow()
                 }
             }
             window.addEventListener('resize', handleResize)
@@ -1073,6 +1437,10 @@ export const Dial = memo(
                 killAnimations()
                 selectionTweenRef.current?.kill()
                 selectionTweenRef.current = null
+                todaySwapTweenRef.current?.kill()
+                todaySwapTweenRef.current = null
+                todaySwapStateRef.current = null
+                lastTodayWedgeRef.current = null
                 wedgeMeshRef.current = null
                 axisIconsRef.current = null
                 handlesLayerRef.current = null
@@ -1080,6 +1448,10 @@ export const Dial = memo(
                 anchorsLayerRef.current = null
                 anchorNodesRef.current.clear()
                 handleTexturesRef.current = null
+                todayIconsLayerRef.current = null
+                todayIconSlotsRef.current = null
+                todayIconTexturesRef.current = null
+                dialRootRef.current = null
                 rotorRef.current = null
                 appRef.current = null
                 for (const tex of loadedTextures) {
@@ -1093,12 +1465,11 @@ export const Dial = memo(
             applyProgress,
             applyRotationAndRender,
             applySelectionVisuals,
-            getLayoutMetrics,
             killAnimations,
             measureLayoutMetrics,
             rebuildAnchors,
             rebuildHandles,
-            requestRender,
+            renderNow,
         ])
 
         useEffect(() => {
@@ -1108,8 +1479,16 @@ export const Dial = memo(
             rebuildWedgeMesh(wedges, activeVisualWedgeIdRef.current)
             rebuildHandles()
             rebuildAnchors()
+            syncTodayIcons()
             requestRender()
-        }, [wedges, rebuildAnchors, rebuildHandles, rebuildWedgeMesh, requestRender])
+        }, [
+            wedges,
+            rebuildAnchors,
+            rebuildHandles,
+            rebuildWedgeMesh,
+            requestRender,
+            syncTodayIcons,
+        ])
 
         useEffect(() => {
             selectionTweenRef.current?.kill()
@@ -1254,16 +1633,17 @@ export const Dial = memo(
 
         useEffect(() => {
             manualControlRef.current = false
+            syncHitAreaLayout(getLayoutMetrics(), mode)
             animateTo(mode)
-        }, [mode, animateTo])
+        }, [mode, animateTo, getLayoutMetrics, syncHitAreaLayout])
 
         const findHitHandle = (
             clientX: number,
             clientY: number,
-            rect: DOMRect,
+            dialRoot: Container,
         ): ScheduleEvent | null => {
             const activeSelectedId = selectedWedgeIdRef.current
-            const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
+            const local = clientToRotorLocal(clientX, clientY, dialRoot, currentRotationRef.current)
             const candidates: HandleNodeEntry[] = activeSelectedId
                 ? [...handleNodesRef.current.values()]
                 : []
@@ -1292,19 +1672,15 @@ export const Dial = memo(
         const findHitWedge = (
             clientX: number,
             clientY: number,
-            rect: DOMRect,
+            dialRoot: Container,
         ): ScheduleWedge | null => {
-            const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
+            const local = clientToRotorLocal(clientX, clientY, dialRoot, currentRotationRef.current)
             const dist = Math.hypot(local.x, local.y)
             if (dist < DIAL_RING_INNER_RADIUS || dist > DIAL_RING_OUTER_RADIUS) return null
 
             const minute = dialAngleToMinute(Math.atan2(local.y, local.x))
             for (const wedge of wedgesRef.current) {
-                const inWedge =
-                    wedge.endMin > MINUTES_PER_DAY
-                        ? minute >= wedge.startMin || minute < wedge.endMin - MINUTES_PER_DAY
-                        : minute >= wedge.startMin && minute < wedge.endMin
-                if (inWedge) return wedge
+                if (isMinuteInWedge(minute, wedge)) return wedge
             }
             return null
         }
@@ -1312,21 +1688,20 @@ export const Dial = memo(
         const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
             if (!isDialInteractiveRef.current) return
 
-            const circle = circleRef.current
-            if (!circle) return
-
-            const rect = circle.getBoundingClientRect()
+            const dialRoot = dialRootRef.current
+            const hitArea = hitAreaRef.current
+            if (!dialRoot || !hitArea) return
 
             if (modeRef.current === 'schedule') {
                 const local = clientToRotorLocal(
                     event.clientX,
                     event.clientY,
-                    rect,
+                    dialRoot,
                     currentRotationRef.current,
                 )
                 const pointerAngle = Math.atan2(local.y, local.x)
                 const activeSelectedId = selectedWedgeIdRef.current
-                const hitHandle = findHitHandle(event.clientX, event.clientY, rect)
+                const hitHandle = findHitHandle(event.clientX, event.clientY, dialRoot)
 
                 // Check handles before the left-edge swipe guard so 6-7 AM anchors remain interactive.
                 if (hitHandle) {
@@ -1348,7 +1723,7 @@ export const Dial = memo(
 
                 if (event.pointerType === 'touch' && event.clientX <= EDGE_SWIPE_GUARD_PX) return
 
-                const hitWedge = findHitWedge(event.clientX, event.clientY, rect)
+                const hitWedge = findHitWedge(event.clientX, event.clientY, dialRoot)
                 const { morningWakeId, bedtimeId } = anchorIdsRef.current
                 const isCumulativeHalf =
                     activeSelectedId === morningWakeId || activeSelectedId === bedtimeId
@@ -1395,17 +1770,18 @@ export const Dial = memo(
 
             if (event.pointerType === 'touch' && event.clientX <= EDGE_SWIPE_GUARD_PX) return
 
-            const centerX = rect.left + rect.width / 2
-            const centerY = rect.top + rect.height / 2
+            const centerX = dialRoot.x
+            const centerY = dialRoot.y
+            const visualDiameter = DIAL_DISC_RADIUS * 2 * dialRoot.scale.x
             const dist = Math.hypot(event.clientX - centerX, event.clientY - centerY)
-            if (dist > rect.width * 0.72) return
+            if (dist > visualDiameter * 0.72) return
 
             const horizontalOnly = modeRef.current === 'today'
             if (!horizontalOnly) {
                 killAnimations()
                 manualControlRef.current = true
                 setIsDragging(true)
-                circle.setPointerCapture(event.pointerId)
+                hitArea.setPointerCapture(event.pointerId)
             }
 
             dragRef.current = {
@@ -1437,13 +1813,13 @@ export const Dial = memo(
                     return
                 }
 
-                const circle = circleRef.current
-                if (!circle) return
-                const rect = circle.getBoundingClientRect()
+                const dialRoot = dialRootRef.current
+                const hitArea = hitAreaRef.current
+                if (!dialRoot || !hitArea) return
                 const local = clientToRotorLocal(
                     event.clientX,
                     event.clientY,
-                    rect,
+                    dialRoot,
                     currentRotationRef.current,
                 )
                 const angle = Math.atan2(local.y, local.x)
@@ -1457,7 +1833,7 @@ export const Dial = memo(
                     interaction.moved = true
                     interaction.lastAngle = angle
                     setIsDragging(true)
-                    circle.setPointerCapture(event.pointerId)
+                    hitArea.setPointerCapture(event.pointerId)
                     onDragEventIdsChangeRef.current?.(interaction.eventIds)
                     onSelectHandleRef.current?.(
                         interaction.dragKind === 'handle'
@@ -1533,7 +1909,7 @@ export const Dial = memo(
                 killAnimations()
                 manualControlRef.current = true
                 setIsDragging(true)
-                circleRef.current?.setPointerCapture(event.pointerId)
+                hitAreaRef.current?.setPointerCapture(event.pointerId)
                 return
             }
 
@@ -1560,7 +1936,7 @@ export const Dial = memo(
             if (modeRef.current === 'today' && devModeRef.current.enabled) {
                 currentMinuteRef.current = rotationRadToFractionalMinute(nextRad)
             }
-            applyRotationAndRender(nextRad, modeRef.current === 'today')
+            applyRotationAndRender(nextRad, modeRef.current === 'today', true)
         }
 
         const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1569,9 +1945,9 @@ export const Dial = memo(
                 scheduleInteractionRef.current = null
                 if (interaction.moved) {
                     setIsDragging(false)
-                    const circle = circleRef.current
-                    if (circle?.hasPointerCapture(event.pointerId)) {
-                        circle.releasePointerCapture(event.pointerId)
+                    const hitArea = hitAreaRef.current
+                    if (hitArea?.hasPointerCapture(event.pointerId)) {
+                        hitArea.releasePointerCapture(event.pointerId)
                     }
                     onDragEventIdsChangeRef.current?.([])
                     return
@@ -1615,9 +1991,9 @@ export const Dial = memo(
 
             setIsDragging(false)
 
-            const circle = circleRef.current
-            if (circle?.hasPointerCapture(event.pointerId)) {
-                circle.releasePointerCapture(event.pointerId)
+            const hitArea = hitAreaRef.current
+            if (hitArea?.hasPointerCapture(event.pointerId)) {
+                hitArea.releasePointerCapture(event.pointerId)
             }
 
             let velocity = drag.velocityRadPerMs
@@ -1638,7 +2014,7 @@ export const Dial = memo(
                 if (modeRef.current === 'today' && devModeRef.current.enabled) {
                     currentMinuteRef.current = rotationRadToFractionalMinute(nextRad)
                 }
-                applyRotationAndRender(nextRad, modeRef.current === 'today')
+                applyRotationAndRender(nextRad, modeRef.current === 'today', true)
                 momentumRafRef.current = window.requestAnimationFrame(coast)
             }
 
@@ -1646,19 +2022,19 @@ export const Dial = memo(
         }
 
         return (
-            <div className={styles.layer} aria-hidden='true'>
+            <div ref={layerRef} className={styles.layer} aria-hidden='true'>
+                <div ref={hostRef} className={styles.stage} />
                 <div
-                    ref={circleRef}
-                    className={styles.circle}
+                    ref={hitAreaRef}
+                    className={styles.hitArea}
                     data-mode={mode}
                     data-dragging={isDragging}
                     data-dial-interactive={isDialInteractive}
                     onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
-                    onPointerCancel={handlePointerUp}>
-                    <div ref={hostRef} className={styles.rotor} style={DIAL_ROTOR_STYLE} />
-                </div>
+                    onPointerCancel={handlePointerUp}
+                />
             </div>
         )
     },

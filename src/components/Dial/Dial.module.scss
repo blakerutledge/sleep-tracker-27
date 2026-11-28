@@ -1,7 +1,6 @@
 .layer {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0;
     inline-size: 100%;
     block-size: 100lvh;
     z-index: 0;
@@ -9,14 +8,20 @@
     pointer-events: none;
 }
 
-.circle {
+.stage {
     position: absolute;
-    left: 50%;
-    top: 0;
-    inline-size: var(--dial-size);
-    block-size: var(--dial-size);
-    transform-origin: center;
-    will-change: transform, opacity;
+    inset: 0;
+    pointer-events: none;
+
+    canvas {
+        display: block;
+        inline-size: 100%;
+        block-size: 100%;
+    }
+}
+
+.hitArea {
+    position: absolute;
     pointer-events: none;
     touch-action: none;
 
@@ -25,6 +30,7 @@
     }
 
     &[data-mode="schedule"][data-dial-interactive="true"] {
+        border-radius: 50%;
         cursor: pointer;
     }
 
@@ -35,19 +41,4 @@
     &[data-dragging="true"] {
         cursor: grabbing;
     }
-
-    canvas {
-        display: block;
-        inline-size: 100%;
-        block-size: 100%;
-    }
-}
-
-.rotor {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    inline-size: calc(var(--dial-size) * var(--dial-rotor-ratio));
-    block-size: calc(var(--dial-size) * var(--dial-rotor-ratio));
-    transform: translate(-50%, -50%);
 }

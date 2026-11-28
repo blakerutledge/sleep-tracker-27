@@ -6,6 +6,7 @@ import {
     addSleepWindowPair,
     clampEventMinute,
     ensureScheduleAnchors,
+    getScheduleDayStats,
     moveScheduleWedgeEvents,
     normalizeMinuteOfDay,
     PLACEHOLDER_SCHEDULE_EVENTS,
@@ -16,12 +17,24 @@ import {
 } from '#src/data/schedule.ts'
 import type { ChildProfile } from './childrenStore.ts'
 import { auth, db, isAllowedEmail } from './firebase.ts'
+import { formatBabyAgeCompact } from './temporal.ts'
 
 export interface SavedSchedule {
     id: string
     name: string
     events: ScheduleEvent[]
+    createdAt: number
     updatedAt: number
+}
+
+export const formatAutoScheduleName = (
+    birthDate: string,
+    events: readonly ScheduleEvent[],
+    refEpochMs: number = Date.now(),
+): string => {
+    const age = formatBabyAgeCompact(birthDate, refEpochMs)
+    const { napCount } = getScheduleDayStats(events)
+    return `${age} - ${napCount} nap`
 }
 
 const LEGACY_SCHEDULE_KEY = 'sleep-tracker-27:schedule-events'
@@ -60,11 +73,13 @@ const parseSavedSchedule = (item: unknown): SavedSchedule | null => {
     if (typeof raw.id !== 'string' || typeof raw.name !== 'string') return null
     const events = parseScheduleEvents(raw.events)
     if (!events) return null
+    const updatedAt = typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now()
     return {
         id: raw.id,
         name: raw.name.trim() || 'Default',
         events,
-        updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+        createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : updatedAt,
+        updatedAt,
     }
 }
 
@@ -88,14 +103,18 @@ const readLegacyEvents = (): ScheduleEvent[] | null => {
     }
 }
 
-const createDefaultSchedule = (childId: string): SavedSchedule => ({
-    id: 'sched-default',
-    name: 'Default',
-    events: (childId === 'child-default' ? readLegacyEvents() : null) ?? [
-        ...PLACEHOLDER_SCHEDULE_EVENTS,
-    ],
-    updatedAt: Date.now(),
-})
+const createDefaultSchedule = (childId: string): SavedSchedule => {
+    const now = Date.now()
+    return {
+        id: 'sched-default',
+        name: 'Default',
+        events: (childId === 'child-default' ? readLegacyEvents() : null) ?? [
+            ...PLACEHOLDER_SCHEDULE_EVENTS,
+        ],
+        createdAt: now,
+        updatedAt: now,
+    }
+}
 
 const readLocalSchedules = (childId: string): SavedSchedule[] => {
     try {
@@ -147,9 +166,8 @@ export interface ScheduleStoreState {
     addNightWake: () => string | null
     removeSleepWindow: (startEventId: string) => void
     saveDraft: () => Promise<void>
-    saveAsNew: (name: string) => Promise<void>
+    saveAsNew: () => Promise<void>
     loadSchedule: (scheduleId: string) => Promise<void>
-    renameSchedule: (scheduleId: string, name: string) => Promise<void>
     deleteSchedule: (scheduleId: string) => Promise<void>
     discardDraft: () => void
 }
@@ -359,10 +377,13 @@ export const useSchedule = (
     )
 
     const saveDraft = useCallback(async () => {
+        const now = Date.now()
+        const sortedEvents = sortScheduleEvents(draftEvents)
         const updated: SavedSchedule = {
             ...activeSchedule,
-            events: sortScheduleEvents(draftEvents),
-            updatedAt: Date.now(),
+            name: formatAutoScheduleName(activeChild.birthDate, sortedEvents, now),
+            events: sortedEvents,
+            updatedAt: now,
         }
         lastSavedRef.current = updated.events
         setDraftEvents(updated.events)
@@ -372,6 +393,7 @@ export const useSchedule = (
         }
     }, [
         activeChild.activeScheduleId,
+        activeChild.birthDate,
         activeSchedule,
         childId,
         draftEvents,
@@ -379,23 +401,22 @@ export const useSchedule = (
         upsertSchedule,
     ])
 
-    const saveAsNew = useCallback(
-        async (name: string) => {
-            const trimmed = name.trim() || 'Untitled Schedule'
-            const created: SavedSchedule = {
-                id: generateScheduleId(),
-                name: trimmed,
-                events: sortScheduleEvents(draftEvents),
-                updatedAt: Date.now(),
-            }
-            await upsertSchedule(created)
-            lastActiveKeyRef.current = `${childId}:${created.id}`
-            lastSavedRef.current = created.events
-            setDraftEvents(created.events)
-            await setChildActiveScheduleId(childId, created.id)
-        },
-        [childId, draftEvents, setChildActiveScheduleId, upsertSchedule],
-    )
+    const saveAsNew = useCallback(async () => {
+        const now = Date.now()
+        const sortedEvents = sortScheduleEvents(draftEvents)
+        const created: SavedSchedule = {
+            id: generateScheduleId(),
+            name: formatAutoScheduleName(activeChild.birthDate, sortedEvents, now),
+            events: sortedEvents,
+            createdAt: now,
+            updatedAt: now,
+        }
+        await upsertSchedule(created)
+        lastActiveKeyRef.current = `${childId}:${created.id}`
+        lastSavedRef.current = created.events
+        setDraftEvents(created.events)
+        await setChildActiveScheduleId(childId, created.id)
+    }, [activeChild.birthDate, childId, draftEvents, setChildActiveScheduleId, upsertSchedule])
 
     const loadSchedule = useCallback(
         async (scheduleId: string) => {
@@ -407,20 +428,6 @@ export const useSchedule = (
             await setChildActiveScheduleId(childId, target.id)
         },
         [childId, schedules, setChildActiveScheduleId],
-    )
-
-    const renameSchedule = useCallback(
-        async (scheduleId: string, name: string) => {
-            const target = schedules.find((s) => s.id === scheduleId)
-            const trimmed = name.trim()
-            if (!target || !trimmed) return
-            await upsertSchedule({
-                ...target,
-                name: trimmed,
-                updatedAt: Date.now(),
-            })
-        },
-        [schedules, upsertSchedule],
     )
 
     const deleteSchedule = useCallback(
@@ -463,7 +470,6 @@ export const useSchedule = (
         saveDraft,
         saveAsNew,
         loadSchedule,
-        renameSchedule,
         deleteSchedule,
         discardDraft,
     }

@@ -362,7 +362,6 @@ const App = () => {
                         onSave={handleSaveSchedule}
                         onSaveAsNew={schedule.saveAsNew}
                         onLoadSchedule={schedule.loadSchedule}
-                        onRenameSchedule={schedule.renameSchedule}
                         onDeleteSchedule={schedule.deleteSchedule}
                         onDiscard={handleDiscardSchedule}
                     />
@@ -402,10 +401,11 @@ const App = () => {
                 activePage={activePage}
                 hasUnsavedSchedule={schedule.isDirty}
                 hideChildSwitcher={
-                    activePage === 'schedule' &&
-                    displayedScheduleView === 'dial' &&
-                    !scheduleViewExiting &&
-                    selectedWedgeId !== null
+                    activePage === 'settings' ||
+                    (activePage === 'schedule' &&
+                        displayedScheduleView === 'dial' &&
+                        !scheduleViewExiting &&
+                        selectedWedgeId !== null)
                 }
                 childrenList={childrenStore.children}
                 activeChildId={childrenStore.activeChildId}

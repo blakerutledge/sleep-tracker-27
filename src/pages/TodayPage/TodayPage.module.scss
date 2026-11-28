@@ -28,59 +28,67 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: clamp(3rem, 7dvh, 4.75rem);
-    padding-block-end: 26dvh;
+    justify-content: flex-start;
+    gap: 2rem;
+    padding-block-start: max(1rem,
+            calc(26lvh + 3.25rem - var(--header-top) - var(--header-row-height)));
 }
 
-.primaryStat,
-.secondaryStat {
+.primaryStat {
     inline-size: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 0.35rem;
+
+    &[data-action="awake"] {
+        --primary-action-color: var(--blue-700);
+    }
+
+    &[data-action="asleep"] {
+        --primary-action-color: var(--purple-200);
+    }
 }
 
-.primaryStat {
-    gap: 0.45rem;
-}
-
-.secondaryStat {
-    gap: 0.25rem;
-}
-
-.primaryRow,
-.secondaryRow {
+.primaryAction {
     margin: 0;
-    inline-size: 100%;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: baseline;
-    column-gap: 0.35em;
-    white-space: nowrap;
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--primary-action-color);
+    transition: color var(--theme-transition);
 }
 
 .primaryRow {
-    font-size: clamp(1.6rem, 6.8vw, 2.25rem);
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    column-gap: 0.35em;
+    white-space: nowrap;
+    font-size: 1.75rem;
     line-height: 1.15;
 }
 
 .secondaryRow {
-    font-size: clamp(1.1rem, 4.6vw, 1.45rem);
-    line-height: 1.2;
-}
+    margin: 0;
+    inline-size: 100%;
+    white-space: nowrap;
+    font-size: 0.96rem;
+    line-height: 1.25;
 
-.primaryAction {
-    justify-self: end;
-    font-weight: 700;
-    color: var(--primary-stat);
-    transition: color var(--theme-transition);
+    &[data-action="awake"] {
+        --secondary-action-color: var(--blue-700);
+    }
+
+    &[data-action="asleep"] {
+        --secondary-action-color: var(--purple-200);
+    }
 }
 
 .secondaryAction {
-    justify-self: end;
     font-weight: 600;
-    color: var(--secondary-stat);
+    color: var(--secondary-action-color);
     transition: color var(--theme-transition);
 }
 
@@ -88,46 +96,36 @@
     font-weight: 600;
     color: var(--primary-muted);
     transition: color var(--theme-transition);
-
-    .secondaryRow & {
-        color: var(--secondary-muted);
-    }
 }
 
 .primaryDuration {
-    justify-self: start;
     font-weight: 700;
     letter-spacing: 0.05em;
     font-variant-numeric: tabular-nums;
-    color: var(--primary-stat);
+    color: var(--primary-action-color);
     transition: color var(--theme-transition);
 }
 
 .secondaryDuration {
-    justify-self: start;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
     font-variant-numeric: tabular-nums;
-    color: var(--secondary-stat);
+    color: var(--secondary-action-color);
     transition: color var(--theme-transition);
 }
 
 .primaryTime {
     margin: 0;
-    font-size: clamp(1.1rem, 4.5vw, 1.4rem);
+    font-size: 0.96rem;
     font-weight: 600;
     letter-spacing: 0.05em;
     line-height: 1.2;
-    color: var(--primary-muted);
+    color: var(--secondary-muted);
     transition: color var(--theme-transition);
 }
 
 .secondaryMeta {
-    margin: 0;
-    font-size: clamp(0.9rem, 3.5vw, 1.05rem);
     font-weight: 600;
-    letter-spacing: 0.05em;
-    line-height: 1.2;
     color: var(--secondary-muted);
     transition: color var(--theme-transition);
 }

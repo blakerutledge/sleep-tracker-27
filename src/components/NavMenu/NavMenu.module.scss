@@ -112,32 +112,20 @@
     }
 }
 
-.childNameStatic,
 .childTrigger {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
     max-inline-size: min(11rem, 42vw);
-    font-size: 0.88rem;
-    font-weight: 600;
-    line-height: 1.2;
-    color: var(--muted);
-}
-
-.childNameStatic {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    pointer-events: none;
-}
-
-.childTrigger {
     block-size: 2.5rem;
     padding: 0 0.8rem 0 0.9rem;
     border: 1px solid var(--border);
     border-radius: 999px;
     background-color: transparent;
     color: var(--fg);
+    font-size: 0.88rem;
+    font-weight: 600;
+    line-height: 1.2;
     transition:
         background-color var(--theme-transition),
         border-color var(--theme-transition);

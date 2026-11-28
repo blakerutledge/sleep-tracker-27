@@ -1,68 +1,82 @@
-import { type FormEvent, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ModalDialog } from '#src/components/ModalDialog/index.tsx'
-import type { SavedSchedule } from '#src/lib/scheduleStore.ts'
+import type { ScheduleEvent } from '#src/data/schedule.ts'
+import { formatAutoScheduleName, type SavedSchedule } from '#src/lib/scheduleStore.ts'
 import styles from './SchedulePicker.module.scss'
 
 interface SchedulePickerProps {
     open: boolean
     childName: string
+    childBirthDate: string
+    draftEvents: readonly ScheduleEvent[]
     schedules: readonly SavedSchedule[]
     activeScheduleId: string
     isDirty: boolean
     onClose: () => void
     onLoad: (scheduleId: string) => Promise<void>
-    onSaveAsNew: (name: string) => Promise<void>
-    onRename: (scheduleId: string, name: string) => Promise<void>
+    onSaveAsNew: () => Promise<void>
     onDelete: (scheduleId: string) => Promise<void>
+}
+
+const formatCreatedDate = (epochMs: number): string => {
+    const date = new Date(epochMs)
+    const sameYear = date.getFullYear() === new Date().getFullYear()
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        ...(sameYear ? {} : { year: 'numeric' }),
+    })
 }
 
 export const SchedulePicker = ({
     open,
     childName,
+    childBirthDate,
+    draftEvents,
     schedules,
     activeScheduleId,
     isDirty,
     onClose,
     onLoad,
     onSaveAsNew,
-    onRename,
     onDelete,
 }: SchedulePickerProps) => {
-    const [newName, setNewName] = useState('')
-    const [renamingId, setRenamingId] = useState<string | null>(null)
-    const [renameValue, setRenameValue] = useState('')
+    const [editing, setEditing] = useState(false)
+    const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
 
-    const handleSaveAsNew = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
-        const trimmed = newName.trim()
-        if (!trimmed || busy) return
+    const autoName = useMemo(
+        () => formatAutoScheduleName(childBirthDate, draftEvents),
+        [childBirthDate, draftEvents],
+    )
+
+    useEffect(() => {
+        if (!open) {
+            setEditing(false)
+            setConfirmingDeleteId(null)
+        }
+    }, [open])
+
+    useEffect(() => {
+        if (schedules.length <= 1 && editing) {
+            setEditing(false)
+            setConfirmingDeleteId(null)
+        }
+    }, [editing, schedules.length])
+
+    const handleSaveAsNew = async () => {
+        if (busy) return
         setBusy(true)
         try {
-            await onSaveAsNew(trimmed)
-            setNewName('')
+            await onSaveAsNew()
             onClose()
         } finally {
             setBusy(false)
         }
     }
 
-    const handleCommitRename = async (event: FormEvent<HTMLFormElement>, scheduleId: string) => {
-        event.preventDefault()
-        const trimmed = renameValue.trim()
-        if (!trimmed || busy) return
-        setBusy(true)
-        try {
-            await onRename(scheduleId, trimmed)
-            setRenamingId(null)
-            setRenameValue('')
-        } finally {
-            setBusy(false)
-        }
-    }
-
     const handleLoad = async (scheduleId: string) => {
-        if (busy) return
+        if (busy || editing) return
         setBusy(true)
         try {
             await onLoad(scheduleId)
@@ -72,11 +86,12 @@ export const SchedulePicker = ({
         }
     }
 
-    const handleDelete = async (scheduleId: string) => {
+    const handleConfirmDelete = async (scheduleId: string) => {
         if (busy || schedules.length <= 1) return
         setBusy(true)
         try {
             await onDelete(scheduleId)
+            setConfirmingDeleteId(null)
         } finally {
             setBusy(false)
         }
@@ -85,154 +100,133 @@ export const SchedulePicker = ({
     return (
         <ModalDialog open={open} onClose={onClose} title={`${childName} · Schedules`}>
             <div className={styles.body}>
-                {isDirty && (
-                    <p className={styles.dirtyNote}>
-                        Unsaved edits will be discarded if you load another schedule, or save them
-                        as a new schedule below.
-                    </p>
+                {(isDirty || schedules.length > 1) && (
+                    <div className={styles.subHeader}>
+                        {isDirty ? (
+                            <p className={styles.dirtyNote}>
+                                Unsaved edits will be lost if you switch.
+                            </p>
+                        ) : (
+                            <span />
+                        )}
+                        {schedules.length > 1 && (
+                            <button
+                                type='button'
+                                className={styles.editToggle}
+                                onClick={() => {
+                                    setEditing((prev) => !prev)
+                                    setConfirmingDeleteId(null)
+                                }}>
+                                {editing ? 'Done' : 'Edit'}
+                            </button>
+                        )}
+                    </div>
                 )}
 
-                <div className={styles.list}>
+                <ul className={styles.list}>
                     {schedules.map((schedule) => {
                         const isActive = schedule.id === activeScheduleId
-                        const isRenaming = renamingId === schedule.id
+                        const isConfirmingDelete = confirmingDeleteId === schedule.id
 
-                        if (isRenaming) {
+                        if (isConfirmingDelete) {
                             return (
-                                <form
-                                    key={schedule.id}
-                                    className={styles.renameRow}
-                                    onSubmit={(e) => handleCommitRename(e, schedule.id)}>
-                                    <input
-                                        type='text'
-                                        className={styles.input}
-                                        value={renameValue}
-                                        onChange={(e) => setRenameValue(e.target.value)}
-                                        maxLength={40}
-                                        aria-label='Schedule name'
-                                        required
-                                    />
-                                    <button
-                                        type='submit'
-                                        className={styles.smallPrimary}
-                                        aria-label='Save schedule name'
-                                        title='Save'
-                                        disabled={busy}>
-                                        <svg
-                                            width='16'
-                                            height='16'
-                                            viewBox='0 0 24 24'
-                                            fill='none'
-                                            aria-hidden='true'>
-                                            <path
-                                                d='M20 6 9 17l-5-5'
-                                                stroke='currentColor'
-                                                strokeWidth='2.3'
-                                                strokeLinecap='round'
-                                                strokeLinejoin='round'
-                                            />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        type='button'
-                                        className={styles.smallSecondary}
-                                        aria-label='Cancel rename'
-                                        title='Cancel'
-                                        onClick={() => setRenamingId(null)}>
-                                        <svg
-                                            width='16'
-                                            height='16'
-                                            viewBox='0 0 24 24'
-                                            fill='none'
-                                            aria-hidden='true'>
-                                            <path
-                                                d='M18 6 6 18M6 6l12 12'
-                                                stroke='currentColor'
-                                                strokeWidth='2.2'
-                                                strokeLinecap='round'
-                                                strokeLinejoin='round'
-                                            />
-                                        </svg>
-                                    </button>
-                                </form>
+                                <li key={schedule.id} className={styles.confirmRow}>
+                                    <span className={styles.confirmText}>
+                                        Delete {schedule.name}?
+                                    </span>
+                                    <div className={styles.confirmButtons}>
+                                        <button
+                                            type='button'
+                                            className={styles.confirmCancel}
+                                            disabled={busy}
+                                            onClick={() => setConfirmingDeleteId(null)}>
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type='button'
+                                            className={styles.confirmDelete}
+                                            disabled={busy}
+                                            onClick={() => void handleConfirmDelete(schedule.id)}>
+                                            Delete
+                                        </button>
+                                    </div>
+                                </li>
                             )
                         }
 
                         return (
-                            <div key={schedule.id} className={styles.item} data-active={isActive}>
+                            <li key={schedule.id} className={styles.row} data-active={isActive}>
                                 <button
                                     type='button'
-                                    className={styles.itemMain}
-                                    disabled={busy}
-                                    onClick={() => handleLoad(schedule.id)}>
-                                    <span className={styles.itemName}>{schedule.name}</span>
-                                    {isActive && <span className={styles.activeBadge}>Active</span>}
+                                    className={styles.rowButton}
+                                    disabled={busy || editing}
+                                    onClick={() => void handleLoad(schedule.id)}>
+                                    <span className={styles.rowLeft}>
+                                        <span className={styles.rowName}>{schedule.name}</span>
+                                        {isActive && (
+                                            <svg
+                                                className={styles.activeCheck}
+                                                width='15'
+                                                height='15'
+                                                viewBox='0 0 24 24'
+                                                fill='none'
+                                                aria-label='Active schedule'>
+                                                <path
+                                                    d='M5 13l4 4L19 7'
+                                                    stroke='currentColor'
+                                                    strokeWidth='2.5'
+                                                    strokeLinecap='round'
+                                                    strokeLinejoin='round'
+                                                />
+                                            </svg>
+                                        )}
+                                    </span>
+                                    {!editing && (
+                                        <span className={styles.rowDate}>
+                                            {formatCreatedDate(schedule.createdAt)}
+                                        </span>
+                                    )}
                                 </button>
-                                <div className={styles.itemActions}>
+
+                                {editing && schedules.length > 1 && (
                                     <button
                                         type='button'
-                                        className={styles.linkAction}
-                                        onClick={() => {
-                                            setRenamingId(schedule.id)
-                                            setRenameValue(schedule.name)
-                                        }}>
-                                        Rename
+                                        className={styles.deleteAction}
+                                        aria-label={`Delete ${schedule.name}`}
+                                        title={`Delete ${schedule.name}`}
+                                        disabled={busy}
+                                        onClick={() => setConfirmingDeleteId(schedule.id)}>
+                                        <svg
+                                            width='16'
+                                            height='16'
+                                            viewBox='0 0 24 24'
+                                            fill='none'
+                                            aria-hidden='true'>
+                                            <path
+                                                d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14ZM10 11v6M14 11v6'
+                                                stroke='currentColor'
+                                                strokeWidth='2'
+                                                strokeLinecap='round'
+                                                strokeLinejoin='round'
+                                            />
+                                        </svg>
                                     </button>
-                                    {schedules.length > 1 && (
-                                        <button
-                                            type='button'
-                                            className={styles.dangerAction}
-                                            disabled={busy}
-                                            onClick={() => handleDelete(schedule.id)}>
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
+                                )}
+                            </li>
                         )
                     })}
-                </div>
+                </ul>
 
-                <form className={styles.saveAsForm} onSubmit={handleSaveAsNew}>
-                    <input
-                        type='text'
-                        className={styles.input}
-                        placeholder='New schedule name...'
-                        aria-label='New schedule name'
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        maxLength={40}
-                        required
-                    />
+                <div className={styles.footer}>
                     <button
-                        type='submit'
-                        className={styles.primaryButton}
-                        aria-label='Save as new schedule'
-                        title='Save as new schedule'
-                        disabled={busy || newName.trim().length === 0}>
-                        <svg
-                            width='18'
-                            height='18'
-                            viewBox='0 0 24 24'
-                            fill='none'
-                            aria-hidden='true'>
-                            <path
-                                d='M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z'
-                                stroke='currentColor'
-                                strokeWidth='2.1'
-                                strokeLinecap='round'
-                                strokeLinejoin='round'
-                            />
-                            <path
-                                d='M17 21v-7H7v7M7 3v5h8'
-                                stroke='currentColor'
-                                strokeWidth='2.1'
-                                strokeLinecap='round'
-                                strokeLinejoin='round'
-                            />
-                        </svg>
+                        type='button'
+                        className={styles.saveCopyButton}
+                        disabled={busy}
+                        onClick={() => void handleSaveAsNew()}>
+                        <span>Save Copy</span>
+                        <span className={styles.saveCopyMeta}>{autoName}</span>
                     </button>
-                </form>
+                </div>
             </div>
         </ModalDialog>
     )
