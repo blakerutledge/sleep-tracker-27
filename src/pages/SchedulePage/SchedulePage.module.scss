@@ -57,8 +57,6 @@
     border-radius: 50%;
     background-color: var(--surface);
     color: var(--fg);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
     transition:
         background-color var(--theme-transition),
         border-color var(--theme-transition),
@@ -109,7 +107,7 @@
 }
 
 .addMenuAnchor {
-    --nav-inset-x: max(1rem, calc(env(safe-area-inset-right) + 0.5rem));
+    --nav-inset-x: max(1.25rem, calc(env(safe-area-inset-right) + 0.5rem));
     --fab-inset-y: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
 
     pointer-events: auto;
@@ -117,11 +115,43 @@
     bottom: var(--fab-inset-y);
     right: var(--nav-inset-x);
     z-index: 20;
-    transition: opacity 220ms ease;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    will-change: opacity;
 
     &[data-hidden="true"] {
-        opacity: 0;
         pointer-events: none;
+    }
+}
+
+.addMenu {
+    display: flex;
+    flex-direction: column;
+    padding: 0.3rem;
+    border-radius: 1rem;
+    border: 1px solid var(--border);
+    background-color: var(--bg);
+    animation: viewFadeIn 160ms ease both;
+}
+
+.addMenuItem {
+    border: none;
+    border-radius: 0.7rem;
+    padding: 0.5rem 0.85rem;
+    background: transparent;
+    color: var(--fg);
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+    transition: background-color 140ms ease;
+
+    &:hover,
+    &:focus-visible {
+        background-color: rgb(255 255 255 / 0.1);
+        outline: none;
     }
 }
 
@@ -129,19 +159,25 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: 3rem;
-    block-size: 3rem;
+    inline-size: 2.5rem;
+    block-size: 2.5rem;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: 50%;
-    background-color: var(--surface);
+    background-color: transparent;
     color: var(--fg);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
     transition:
         background-color var(--theme-transition),
         border-color var(--theme-transition),
         color var(--theme-transition);
+
+    svg {
+        transition: transform 180ms ease;
+    }
+
+    &[data-open="true"] svg {
+        transform: rotate(45deg);
+    }
 
     &:focus-visible {
         outline: 2px solid var(--accent);
@@ -211,6 +247,7 @@
     from {
         opacity: 0;
     }
+
     to {
         opacity: 1;
     }
@@ -220,6 +257,7 @@
     from {
         opacity: 1;
     }
+
     to {
         opacity: 0;
     }
@@ -243,10 +281,10 @@
     inline-size: 100%;
     display: flex;
     justify-content: center;
-    animation: viewFadeIn 220ms ease both;
+    opacity: 0;
+    will-change: opacity;
 
     &[data-exiting="true"] {
-        animation: viewFadeOut 220ms ease both;
         pointer-events: none;
     }
 }
@@ -258,9 +296,6 @@
     padding: 0.95rem 1.1rem;
     border-radius: 1.25rem;
     border: 1px solid var(--border);
-    background-color: var(--surface);
-    -webkit-backdrop-filter: blur(18px);
-    backdrop-filter: blur(18px);
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
@@ -277,13 +312,6 @@
     gap: 0.75rem;
 }
 
-.wedgeTitleGroup {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.1rem;
-}
-
 .wedgeBarTitle {
     font-size: 1rem;
     font-weight: 600;
@@ -292,15 +320,80 @@
 }
 
 .wedgeBarMeta {
-    font-size: 0.8rem;
-    color: var(--muted);
+    font-size: 1rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    opacity: 0.7;
     line-height: 1.2;
+}
+
+.wedgeSegmentsGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.65rem;
+}
+
+.wedgeSegmentColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-inline-size: 0;
+}
+
+.wedgeSegmentHeading {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--subtle);
+}
+
+.wedgeSegments {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.wedgeSegmentItem {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    line-height: 1.3;
+}
+
+.wedgeSegmentIndex {
+    color: var(--subtle);
+    min-inline-size: 1.1rem;
 }
 
 .wedgeTimes {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.65rem;
+}
+
+.wedgeTimeField {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-inline-size: 0;
+}
+
+.wedgeTimeLabel {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--subtle);
+    text-align: center;
 }
 
 .wedgeTimeInput {
@@ -331,13 +424,4 @@
         outline: 2px solid var(--accent);
         outline-offset: 2px;
     }
-}
-
-.wedgeRemoveButton {
-    border: none;
-    padding: 0.3rem 0.5rem;
-    background: transparent;
-    color: var(--error);
-    font-size: 0.82rem;
-    font-weight: 600;
 }

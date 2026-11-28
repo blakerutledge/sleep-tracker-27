@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { DIAL_FADE_DURATION_MS } from '#src/components/Dial/index.tsx'
+import gsap from 'gsap'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { DialKey } from '#src/components/DialKey/index.tsx'
 import { ScheduleList } from '#src/components/ScheduleList/index.tsx'
 import { SchedulePicker } from '#src/components/SchedulePicker/index.tsx'
-import { TimePickerBar } from '#src/components/TimePickerBar/index.tsx'
 import {
     formatMinuteOfDay24h,
     getScheduleWedgeInfo,
@@ -16,10 +16,6 @@ import styles from './SchedulePage.module.scss'
 
 export type ScheduleViewMode = 'dial' | 'list'
 
-type InspectorCard =
-    | { kind: 'event'; event: ScheduleEvent }
-    | { kind: 'wedge'; wedge: ScheduleWedgeInfo }
-
 interface SchedulePageProps {
     childName: string
     schedules: readonly SavedSchedule[]
@@ -29,12 +25,12 @@ interface SchedulePageProps {
     viewMode: ScheduleViewMode
     displayedViewMode: ScheduleViewMode
     isViewExiting: boolean
-    selectedEventId: string | null
     selectedWedgeId: string | null
     onChangeViewMode: (mode: ScheduleViewMode) => void
     onClearSelection: () => void
     onChangeEventMinute: (eventId: string, minuteOfDay: number) => void
     onAddSleepWindow: () => void
+    onAddNightWake: () => void
     onRemoveSleepWindow: (startEventId: string) => void
     onSave: () => Promise<void>
     onSaveAsNew: (name: string) => Promise<void>
@@ -53,12 +49,12 @@ export const SchedulePage = ({
     viewMode,
     displayedViewMode,
     isViewExiting,
-    selectedEventId,
     selectedWedgeId,
     onChangeViewMode,
     onClearSelection,
     onChangeEventMinute,
     onAddSleepWindow,
+    onAddNightWake,
     onRemoveSleepWindow,
     onSave,
     onSaveAsNew,
@@ -68,66 +64,124 @@ export const SchedulePage = ({
     onDiscard,
 }: SchedulePageProps) => {
     const [pickerOpen, setPickerOpen] = useState(false)
+    const [addMenuOpen, setAddMenuOpen] = useState(false)
     const addFabRef = useRef<HTMLDivElement | null>(null)
+    const dialKeyRef = useRef<HTMLUListElement | null>(null)
     const topActionsRef = useRef<HTMLDivElement | null>(null)
     const bottomDockRef = useRef<HTMLDivElement | null>(null)
+    const inspectorSlotRef = useRef<HTMLDivElement | null>(null)
+    const cardTimelineRef = useRef<gsap.core.Timeline | null>(null)
+    const hasMountedCardRef = useRef(false)
 
-    const selectedEvent = selectedEventId
-        ? (events.find((event) => event.id === selectedEventId) ?? null)
-        : null
-    const selectedWedge = selectedWedgeId ? getScheduleWedgeInfo(selectedWedgeId, events) : null
+    const selectedWedge = useMemo(
+        () => (selectedWedgeId ? getScheduleWedgeInfo(selectedWedgeId, events) : null),
+        [events, selectedWedgeId],
+    )
 
-    const activeCard: InspectorCard | null =
-        displayedViewMode === 'dial' && !isViewExiting
-            ? selectedEvent
-                ? { kind: 'event', event: selectedEvent }
-                : selectedWedge
-                  ? { kind: 'wedge', wedge: selectedWedge }
-                  : null
-            : null
+    const activeCard: ScheduleWedgeInfo | null =
+        displayedViewMode === 'dial' && !isViewExiting ? selectedWedge : null
 
     const hasActiveCard = activeCard !== null
-    const lastCardRef = useRef<InspectorCard | null>(null)
-    if (activeCard) {
-        lastCardRef.current = activeCard
+    const activeCardKey = activeCard
+        ? `${activeCard.startEvent.id}:${activeCard.startEvent.minuteOfDay}:${activeCard.endEvent.id}:${activeCard.endEvent.minuteOfDay}:${activeCard.name}:${activeCard.durationMinutes}:${activeCard.segmentDurations?.join(',') ?? ''}:${activeCard.secondarySegmentDurations?.join(',') ?? ''}`
+        : null
+    const [retainedCard, setRetainedCard] = useState<{
+        key: string
+        card: ScheduleWedgeInfo
+    } | null>(null)
+    if (activeCard && activeCardKey && retainedCard?.key !== activeCardKey) {
+        setRetainedCard({ key: activeCardKey, card: activeCard })
     }
 
-    const [exitingCard, setExitingCard] = useState<InspectorCard | null>(null)
-    const cardExitTimerRef = useRef<number | null>(null)
+    const displayedCard = activeCard ?? retainedCard?.card ?? null
+    const cardExiting = !hasActiveCard && retainedCard !== null
 
-    useEffect(() => {
-        if (cardExitTimerRef.current !== null) {
-            window.clearTimeout(cardExitTimerRef.current)
-            cardExitTimerRef.current = null
+    useLayoutEffect(() => {
+        if (!hasMountedCardRef.current) {
+            hasMountedCardRef.current = true
+            if (!hasActiveCard) return
         }
+
+        cardTimelineRef.current?.kill()
+        const slot = inspectorSlotRef.current
+        const chromeTargets = [addFabRef.current, dialKeyRef.current].filter(
+            (el): el is HTMLDivElement | HTMLUListElement => el !== null,
+        )
+
+        const tl = gsap.timeline()
+        cardTimelineRef.current = tl
 
         if (hasActiveCard) {
-            setExitingCard(null)
-            return
-        }
-
-        const prev = lastCardRef.current
-        if (prev) {
-            setExitingCard(prev)
-            cardExitTimerRef.current = window.setTimeout(() => {
-                cardExitTimerRef.current = null
-                lastCardRef.current = null
-                setExitingCard(null)
-            }, DIAL_FADE_DURATION_MS)
+            if (chromeTargets.length > 0) {
+                tl.to(chromeTargets, {
+                    opacity: 0,
+                    duration: 0.14,
+                    ease: 'power2.out',
+                })
+            }
+            if (slot) {
+                tl.to(slot, {
+                    opacity: 1,
+                    duration: 0.2,
+                    ease: 'power2.out',
+                })
+            }
+        } else {
+            if (slot) {
+                tl.to(slot, {
+                    opacity: 0,
+                    duration: 0.16,
+                    ease: 'power2.out',
+                    onComplete: () => {
+                        setRetainedCard(null)
+                    },
+                })
+            } else {
+                setRetainedCard(null)
+            }
+            if (chromeTargets.length > 0) {
+                tl.to(chromeTargets, {
+                    opacity: 1,
+                    duration: 0.18,
+                    ease: 'power2.out',
+                })
+            }
         }
     }, [hasActiveCard])
 
     useEffect(
         () => () => {
-            if (cardExitTimerRef.current !== null) {
-                window.clearTimeout(cardExitTimerRef.current)
-            }
+            cardTimelineRef.current?.kill()
         },
         [],
     )
 
-    const displayedCard = activeCard ?? exitingCard
-    const cardExiting = !hasActiveCard && exitingCard !== null
+    useEffect(() => {
+        if (hasActiveCard) {
+            setAddMenuOpen(false)
+        }
+    }, [hasActiveCard])
+
+    useEffect(() => {
+        if (!addMenuOpen) return
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target
+            if (!(target instanceof Element)) return
+            if (addFabRef.current?.contains(target)) return
+            setAddMenuOpen(false)
+        }
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setAddMenuOpen(false)
+            }
+        }
+        window.addEventListener('pointerdown', handlePointerDown)
+        window.addEventListener('keydown', handleKeyDown)
+        return () => {
+            window.removeEventListener('pointerdown', handlePointerDown)
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [addMenuOpen])
 
     useEffect(() => {
         if (!hasActiveCard || pickerOpen) return
@@ -268,14 +322,45 @@ export const SchedulePage = ({
                 </div>
             </div>
 
+            {displayedViewMode === 'dial' && (
+                <DialKey ref={dialKeyRef} exiting={isViewExiting} hidden={hasActiveCard} />
+            )}
+
             <div ref={addFabRef} className={styles.addMenuAnchor} data-hidden={hasActiveCard}>
+                {addMenuOpen && (
+                    <div className={styles.addMenu} role='menu' aria-label='Add schedule window'>
+                        <button
+                            type='button'
+                            role='menuitem'
+                            className={styles.addMenuItem}
+                            onClick={() => {
+                                onAddSleepWindow()
+                                setAddMenuOpen(false)
+                            }}>
+                            Add Nap
+                        </button>
+                        <button
+                            type='button'
+                            role='menuitem'
+                            className={styles.addMenuItem}
+                            onClick={() => {
+                                onAddNightWake()
+                                setAddMenuOpen(false)
+                            }}>
+                            Add Night Wake
+                        </button>
+                    </div>
+                )}
                 <button
                     type='button'
                     className={styles.addButton}
-                    aria-label='Add sleep window'
-                    title='Add sleep window'
+                    data-open={addMenuOpen}
+                    aria-label={addMenuOpen ? 'Close add menu' : 'Add nap or night wake'}
+                    aria-expanded={addMenuOpen}
+                    aria-haspopup='menu'
+                    title='Add nap or night wake'
                     tabIndex={hasActiveCard ? -1 : 0}
-                    onClick={onAddSleepWindow}>
+                    onClick={() => setAddMenuOpen((open) => !open)}>
                     <svg width='22' height='22' viewBox='0 0 24 24' fill='none' aria-hidden='true'>
                         <path
                             d='M12 5v14M5 12h14'
@@ -300,80 +385,116 @@ export const SchedulePage = ({
 
             {displayedCard && (
                 <div ref={bottomDockRef} className={styles.bottomDock}>
-                    <div className={styles.inspectorSlot} data-exiting={cardExiting}>
-                        {displayedCard.kind === 'event' ? (
-                            <TimePickerBar
-                                event={displayedCard.event}
-                                events={events}
-                                onChangeMinute={onChangeEventMinute}
-                            />
-                        ) : (
-                            <section
-                                className={styles.wedgeBar}
-                                aria-label={`Edit ${displayedCard.wedge.name}`}>
-                                <div className={styles.wedgeBarHeader}>
-                                    <div className={styles.wedgeTitleGroup}>
-                                        <span className={styles.wedgeBarTitle}>
-                                            {displayedCard.wedge.name}
-                                        </span>
-                                        <span className={styles.wedgeBarMeta}>
-                                            {formatMinutesHuman(
-                                                displayedCard.wedge.durationMinutes,
-                                            )}{' '}
-                                            {displayedCard.wedge.state === 'asleep'
-                                                ? 'sleep'
-                                                : 'awake'}
-                                        </span>
+                    <div
+                        ref={inspectorSlotRef}
+                        className={styles.inspectorSlot}
+                        data-exiting={cardExiting}>
+                        <section
+                            className={styles.wedgeBar}
+                            aria-label={`Edit ${displayedCard.name}`}>
+                            <div className={styles.wedgeBarHeader}>
+                                <span className={styles.wedgeBarTitle}>{displayedCard.name}</span>
+                                <span className={styles.wedgeBarMeta}>
+                                    {formatMinutesHuman(displayedCard.durationMinutes)}
+                                </span>
+                            </div>
+
+                            {displayedCard.segmentDurations && (
+                                <div className={styles.wedgeSegmentsGrid}>
+                                    <div className={styles.wedgeSegmentColumn}>
+                                        {displayedCard.segmentLabel && (
+                                            <span className={styles.wedgeSegmentHeading}>
+                                                {displayedCard.segmentLabel}
+                                            </span>
+                                        )}
+                                        <ol className={styles.wedgeSegments}>
+                                            {displayedCard.segmentDurations.map((minutes, idx) => (
+                                                <li
+                                                    key={`${displayedCard.name}-seg-${idx + 1}`}
+                                                    className={styles.wedgeSegmentItem}>
+                                                    <span className={styles.wedgeSegmentIndex}>
+                                                        {idx + 1}.
+                                                    </span>
+                                                    <span>{formatMinutesHuman(minutes)}</span>
+                                                </li>
+                                            ))}
+                                        </ol>
                                     </div>
-                                    {displayedCard.wedge.removable &&
-                                        displayedCard.wedge.removeLabel && (
-                                            <button
-                                                type='button'
-                                                className={styles.wedgeRemoveButton}
-                                                onClick={() => {
-                                                    onRemoveSleepWindow(
-                                                        displayedCard.wedge.startEvent.id,
-                                                    )
-                                                    onClearSelection()
-                                                }}>
-                                                {displayedCard.wedge.removeLabel}
-                                            </button>
+
+                                    {displayedCard.secondarySegmentDurations &&
+                                        displayedCard.secondarySegmentDurations.length > 0 && (
+                                            <div className={styles.wedgeSegmentColumn}>
+                                                {displayedCard.secondarySegmentLabel && (
+                                                    <span className={styles.wedgeSegmentHeading}>
+                                                        {displayedCard.secondarySegmentLabel}
+                                                    </span>
+                                                )}
+                                                <ol className={styles.wedgeSegments}>
+                                                    {displayedCard.secondarySegmentDurations.map(
+                                                        (minutes, idx) => (
+                                                            <li
+                                                                key={`${displayedCard.name}-sec-${idx + 1}`}
+                                                                className={styles.wedgeSegmentItem}>
+                                                                <span
+                                                                    className={
+                                                                        styles.wedgeSegmentIndex
+                                                                    }>
+                                                                    {idx + 1}.
+                                                                </span>
+                                                                <span>
+                                                                    {formatMinutesHuman(minutes)}
+                                                                </span>
+                                                            </li>
+                                                        ),
+                                                    )}
+                                                </ol>
+                                            </div>
                                         )}
                                 </div>
+                            )}
 
-                                <div className={styles.wedgeTimes}>
+                            <div className={styles.wedgeTimes}>
+                                <label className={styles.wedgeTimeField}>
+                                    <span className={styles.wedgeTimeLabel}>
+                                        {displayedCard.startLabel}
+                                    </span>
                                     <input
                                         type='time'
                                         className={styles.wedgeTimeInput}
-                                        aria-label={`${displayedCard.wedge.name} start time`}
+                                        aria-label={`${displayedCard.name} ${displayedCard.startLabel.toLowerCase()}`}
                                         value={formatMinuteOfDay24h(
-                                            displayedCard.wedge.startEvent.minuteOfDay,
+                                            displayedCard.startEvent.minuteOfDay,
                                         )}
                                         onChange={(e) =>
                                             handleModalTimeChange(
-                                                displayedCard.wedge.startEvent.id,
+                                                displayedCard.startEvent.id,
                                                 e.target.value,
                                             )
                                         }
                                     />
+                                </label>
 
+                                <label className={styles.wedgeTimeField}>
+                                    <span className={styles.wedgeTimeLabel}>
+                                        {displayedCard.endLabel}
+                                    </span>
                                     <input
                                         type='time'
                                         className={styles.wedgeTimeInput}
-                                        aria-label={`${displayedCard.wedge.name} stop time`}
+                                        aria-label={`${displayedCard.name} ${displayedCard.endLabel.toLowerCase()}`}
                                         value={formatMinuteOfDay24h(
-                                            displayedCard.wedge.endEvent.minuteOfDay,
+                                            displayedCard.endEvent.minuteOfDay,
                                         )}
                                         onChange={(e) =>
                                             handleModalTimeChange(
-                                                displayedCard.wedge.endEvent.id,
+                                                displayedCard.endEvent.id,
                                                 e.target.value,
                                             )
                                         }
                                     />
-                                </div>
-                            </section>
-                        )}
+                                </label>
+                            </div>
+                        </section>
                     </div>
                 </div>
             )}

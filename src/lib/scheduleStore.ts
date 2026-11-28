@@ -2,9 +2,10 @@ import { onAuthStateChanged, type User } from 'firebase/auth'
 import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+    addNightWakePair,
     addSleepWindowPair,
     clampEventMinute,
-    moveWedgeEvents,
+    ensureScheduleAnchors,
     normalizeMinuteOfDay,
     PLACEHOLDER_SCHEDULE_EVENTS,
     removeSleepWindowPair,
@@ -49,7 +50,7 @@ const parseScheduleEvents = (raw: unknown): ScheduleEvent[] | null => {
             minuteOfDay: normalizeMinuteOfDay(item.minuteOfDay),
             ...(isScheduleAnchor(item.anchor) ? { anchor: item.anchor } : {}),
         }))
-    return valid.length >= 2 ? sortScheduleEvents(valid) : null
+    return valid.length >= 2 ? ensureScheduleAnchors(valid) : null
 }
 
 const parseSavedSchedule = (item: unknown): SavedSchedule | null => {
@@ -134,8 +135,8 @@ export interface ScheduleStoreState {
     isDirty: boolean
     syncMode: 'cloud' | 'local'
     updateEventMinute: (eventId: string, candidateMinute: number) => void
-    moveWedge: (startEventId: string, candidateStartMinute: number) => void
-    addSleepWindow: () => void
+    addSleepWindow: () => string | null
+    addNightWake: () => string | null
     removeSleepWindow: (startEventId: string) => void
     saveDraft: () => Promise<void>
     saveAsNew: (name: string) => Promise<void>
@@ -243,6 +244,8 @@ export const useSchedule = (
     }, [activeChild.activeScheduleId, childId, schedules])
 
     const [draftEvents, setDraftEvents] = useState<ScheduleEvent[]>(() => activeSchedule.events)
+    const draftEventsRef = useRef<ScheduleEvent[]>(draftEvents)
+    draftEventsRef.current = draftEvents
     const lastActiveKeyRef = useRef<string>(`${childId}:${activeSchedule.id}`)
     const lastSavedRef = useRef<ScheduleEvent[]>(activeSchedule.events)
 
@@ -283,15 +286,22 @@ export const useSchedule = (
         })
     }, [])
 
-    const moveWedge = useCallback((startEventId: string, candidateStartMinute: number) => {
-        setDraftEvents((current) => {
-            const next = moveWedgeEvents(current, startEventId, candidateStartMinute)
-            return areEventsEqual(next, current) ? current : next
-        })
+    const addSleepWindow = useCallback((): string | null => {
+        const { events, addedStartEventId } = addSleepWindowPair(draftEventsRef.current)
+        if (addedStartEventId) {
+            draftEventsRef.current = events
+            setDraftEvents(events)
+        }
+        return addedStartEventId
     }, [])
 
-    const addSleepWindow = useCallback(() => {
-        setDraftEvents((current) => addSleepWindowPair(current))
+    const addNightWake = useCallback((): string | null => {
+        const { events, addedStartEventId } = addNightWakePair(draftEventsRef.current)
+        if (addedStartEventId) {
+            draftEventsRef.current = events
+            setDraftEvents(events)
+        }
+        return addedStartEventId
     }, [])
 
     const removeSleepWindow = useCallback((startEventId: string) => {
@@ -415,8 +425,8 @@ export const useSchedule = (
         isDirty,
         syncMode,
         updateEventMinute,
-        moveWedge,
         addSleepWindow,
+        addNightWake,
         removeSleepWindow,
         saveDraft,
         saveAsNew,

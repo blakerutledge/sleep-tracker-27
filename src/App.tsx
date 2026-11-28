@@ -5,7 +5,6 @@ import { NavMenu } from './components/NavMenu/index.tsx'
 import { useChildren } from './lib/childrenStore.ts'
 import { isStandaloneDisplayMode } from './lib/pwa.ts'
 import { useSchedule } from './lib/scheduleStore.ts'
-import { isDaytime, useSunLocation } from './lib/sun.ts'
 import { epochToZonedDateTime } from './lib/temporal.ts'
 import { HistoryPage } from './pages/HistoryPage/index.tsx'
 import { NotesPage } from './pages/NotesPage/index.tsx'
@@ -55,19 +54,18 @@ const App = () => {
     const [scheduleViewMode, setScheduleViewMode] = useState<ScheduleViewMode>('dial')
     const [displayedScheduleView, setDisplayedScheduleView] = useState<ScheduleViewMode>('dial')
     const [scheduleViewExiting, setScheduleViewExiting] = useState(false)
-    const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
     const [selectedWedgeId, setSelectedWedgeId] = useState<string | null>(null)
-    const { sunTimes } = useSunLocation()
     const childrenStore = useChildren()
     const schedule = useSchedule(childrenStore.activeChild, childrenStore.setChildActiveScheduleId)
     const dialRef = useRef<DialHandle | null>(null)
     const viewSwapTimerRef = useRef<number | null>(null)
     const activePageRef = useRef<PageId>(activePage)
     activePageRef.current = activePage
+    const scheduleListActiveRef = useRef<boolean>(false)
+    scheduleListActiveRef.current = scheduleViewMode === 'list' || displayedScheduleView === 'list'
 
     useEffect(() => {
         if (activePage !== 'schedule') {
-            setSelectedEventId(null)
             setSelectedWedgeId(null)
             if (viewSwapTimerRef.current !== null) {
                 window.clearTimeout(viewSwapTimerRef.current)
@@ -88,20 +86,13 @@ const App = () => {
         [],
     )
 
-    const theme =
-        activePage === 'today' &&
-        isDaytime(dialMinuteOfDay, sunTimes.sunriseMinuteOfDay, sunTimes.sunsetMinuteOfDay)
-            ? 'day'
-            : 'night'
-
     useEffect(() => {
-        document.documentElement.dataset.theme = theme
-        const themeColor = theme === 'day' ? '#c5dff0' : '#1b1c33'
+        document.documentElement.dataset.theme = 'night'
         const meta = document.querySelector('meta[name="theme-color"]')
         if (meta) {
-            meta.setAttribute('content', themeColor)
+            meta.setAttribute('content', '#1b1c33')
         }
-    }, [theme])
+    }, [])
 
     useEffect(() => {
         const handlePopState = () => {
@@ -167,7 +158,11 @@ const App = () => {
                     locked: false,
                     progress: 0,
                 }
-            } else if (page === 'schedule' && touch.clientY <= height * 0.25) {
+            } else if (
+                page === 'schedule' &&
+                !scheduleListActiveRef.current &&
+                touch.clientY <= height * 0.25
+            ) {
                 swipe = {
                     originPage: 'schedule',
                     startX: touch.clientX,
@@ -269,7 +264,6 @@ const App = () => {
             if (nextMode === scheduleViewMode) return
             setScheduleViewMode(nextMode)
             if (nextMode === 'list') {
-                setSelectedEventId(null)
                 setSelectedWedgeId(null)
             }
             if (viewSwapTimerRef.current !== null) {
@@ -285,34 +279,37 @@ const App = () => {
         [scheduleViewMode],
     )
 
-    const handleSelectEvent = useCallback((eventId: string | null) => {
-        setSelectedEventId(eventId)
-        if (eventId !== null) {
-            setSelectedWedgeId(null)
-        }
-    }, [])
-
     const handleClearSelection = useCallback(() => {
-        setSelectedEventId(null)
         setSelectedWedgeId(null)
     }, [])
 
+    const handleAddSleepWindow = useCallback(() => {
+        const addedId = schedule.addSleepWindow()
+        if (addedId && !scheduleListActiveRef.current) {
+            setSelectedWedgeId(addedId)
+        }
+    }, [schedule.addSleepWindow])
+
+    const handleAddNightWake = useCallback(() => {
+        const addedId = schedule.addNightWake()
+        if (addedId && !scheduleListActiveRef.current) {
+            setSelectedWedgeId(addedId)
+        }
+    }, [schedule.addNightWake])
+
     const handleSaveSchedule = useCallback(async () => {
         await schedule.saveDraft()
-        setSelectedEventId(null)
         setSelectedWedgeId(null)
     }, [schedule.saveDraft])
 
     const handleDiscardSchedule = useCallback(() => {
         schedule.discardDraft()
-        setSelectedEventId(null)
         setSelectedWedgeId(null)
     }, [schedule.discardDraft])
 
     const handleSelectChild = useCallback(
         (childId: string) => {
             childrenStore.setActiveChildId(childId)
-            setSelectedEventId(null)
             setSelectedWedgeId(null)
         },
         [childrenStore.setActiveChildId],
@@ -333,12 +330,12 @@ const App = () => {
                         viewMode={scheduleViewMode}
                         displayedViewMode={displayedScheduleView}
                         isViewExiting={scheduleViewExiting}
-                        selectedEventId={selectedEventId}
                         selectedWedgeId={selectedWedgeId}
                         onChangeViewMode={handleChangeScheduleViewMode}
                         onClearSelection={handleClearSelection}
                         onChangeEventMinute={schedule.updateEventMinute}
-                        onAddSleepWindow={schedule.addSleepWindow}
+                        onAddSleepWindow={handleAddSleepWindow}
+                        onAddNightWake={handleAddNightWake}
                         onRemoveSleepWindow={schedule.removeSleepWindow}
                         onSave={handleSaveSchedule}
                         onSaveAsNew={schedule.saveAsNew}
@@ -370,13 +367,9 @@ const App = () => {
                 activePage={activePage}
                 hidden={dialHidden}
                 events={dialEvents}
-                selectedEventId={selectedEventId}
                 selectedWedgeId={selectedWedgeId}
                 onMinuteChange={setDialMinuteOfDay}
-                onSelectEvent={handleSelectEvent}
                 onSelectWedge={setSelectedWedgeId}
-                onChangeEventMinute={schedule.updateEventMinute}
-                onMoveWedge={schedule.moveWedge}
             />
             <NavMenu
                 activePage={activePage}

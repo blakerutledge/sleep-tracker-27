@@ -21,31 +21,42 @@ export interface ScheduleEvent {
     anchor?: ScheduleAnchor
 }
 
+export type RemoveWindowLabel = 'Remove nap' | 'Remove night wake'
+
 export interface ClassifiedScheduleEvent {
     event: ScheduleEvent
     kind: ScheduleEventKind
     label: string
     durationMinutes: number
     removable: boolean
-    removeLabel: 'Remove sleep' | null
+    removeLabel: RemoveWindowLabel | null
     isPairStart: boolean
 }
 
 export interface ScheduleWedgeInfo {
     startEvent: ScheduleEvent
     endEvent: ScheduleEvent
+    startLabel: string
+    endLabel: string
     name: string
     state: SleepEventType
     durationMinutes: number
+    segmentLabel?: string
+    segmentDurations?: number[]
+    secondarySegmentLabel?: string
+    secondarySegmentDurations?: number[]
     removable: boolean
-    removeLabel: 'Remove sleep' | null
+    removeLabel: RemoveWindowLabel | null
 }
 
 export interface ScheduleWedge {
     id: string
+    selectionId: string
     state: SleepEventType
     startMin: number
     endMin: number
+    isNap: boolean
+    isNightWake: boolean
 }
 
 export interface ScheduleStatus {
@@ -105,15 +116,44 @@ export const buildScheduleWedges = (events: readonly ScheduleEvent[]): ScheduleW
     if (events.length === 0) return []
 
     const sorted = sortScheduleEvents(events)
+    const classified = classifyScheduleEvents(sorted)
+    const { morningWakeId, bedtimeId } = resolveAnchorIds(sorted)
+    const napStartIds = new Set(
+        classified.filter((item) => item.kind === 'nap-start').map((item) => item.event.id),
+    )
+    const nightWakeStartIds = new Set(
+        classified.filter((item) => item.kind === 'night-wake-start').map((item) => item.event.id),
+    )
+    const dayAwakeIds = new Set(
+        classified
+            .filter((item) => item.kind === 'morning-wake' || item.kind === 'nap-end')
+            .map((item) => item.event.id),
+    )
+    const nightSleepIds = new Set(
+        classified
+            .filter((item) => item.kind === 'bedtime' || item.kind === 'night-wake-end')
+            .map((item) => item.event.id),
+    )
 
     return sorted.map((event, index) => {
         const next = sorted[(index + 1) % sorted.length]
+        const isNap = napStartIds.has(event.id)
+        const isNightWake = nightWakeStartIds.has(event.id)
+        const selectionId =
+            morningWakeId && dayAwakeIds.has(event.id)
+                ? morningWakeId
+                : bedtimeId && nightSleepIds.has(event.id)
+                  ? bedtimeId
+                  : event.id
         if (!next) {
             return {
                 id: event.id,
+                selectionId,
                 state: event.type,
                 startMin: event.minuteOfDay,
                 endMin: event.minuteOfDay + MINUTES_PER_DAY,
+                isNap,
+                isNightWake,
             }
         }
         const endMin =
@@ -121,9 +161,12 @@ export const buildScheduleWedges = (events: readonly ScheduleEvent[]): ScheduleW
 
         return {
             id: event.id,
+            selectionId,
             state: event.type,
             startMin: event.minuteOfDay,
             endMin,
+            isNap,
+            isNightWake,
         }
     })
 }
@@ -162,29 +205,56 @@ export const getScheduleStatus = (
 
 const resolveAnchorIds = (
     sorted: readonly ScheduleEvent[],
-): { morningWakeId: string | null; bedtimeId: string | null } => {
-    const explicitWake = sorted.find((e) => e.anchor === 'morning-wake')
-    const explicitBed = sorted.find((e) => e.anchor === 'bedtime')
+): { morningWakeId: string | null; bedtimeId: string | null } => ({
+    morningWakeId: sorted.find((e) => e.anchor === 'morning-wake')?.id ?? null,
+    bedtimeId: sorted.find((e) => e.anchor === 'bedtime')?.id ?? null,
+})
 
-    const awakeEvents = sorted.filter((e) => e.type === 'awake')
-    const asleepEvents = sorted.filter((e) => e.type === 'asleep')
+/**
+ * One-time migration for legacy saved schedules that predate explicit `anchor` variants.
+ * Stamps `bedtime` and `morning-wake` onto the start/end of the longest sleep window only
+ * when missing, so anchors are never dynamically recomputed during normal editing.
+ */
+export const ensureScheduleAnchors = (events: readonly ScheduleEvent[]): ScheduleEvent[] => {
+    const sorted = sortScheduleEvents(events)
+    const hasWake = sorted.some((e) => e.anchor === 'morning-wake')
+    const hasBed = sorted.some((e) => e.anchor === 'bedtime')
+    if (hasWake && hasBed) return sorted
 
-    // Fallback for legacy stored events without explicit anchors:
-    // morning wake = first awake at/after 5:00 AM; bedtime = last asleep at/after 5:00 PM.
-    const morningWake =
-        explicitWake ?? awakeEvents.find((e) => e.minuteOfDay >= 5 * 60) ?? awakeEvents[0] ?? null
-    const eveningSleeps = asleepEvents.filter((e) => e.minuteOfDay >= 17 * 60)
-    const bedtime =
-        explicitBed ??
-        eveningSleeps[eveningSleeps.length - 1] ??
-        asleepEvents[asleepEvents.length - 1] ??
-        null
-
-    return {
-        morningWakeId: morningWake?.id ?? null,
-        bedtimeId: bedtime?.id ?? null,
+    const n = sorted.length
+    let longestSleepIdx = -1
+    let longestSleepDur = -1
+    for (let i = 0; i < n; i += 1) {
+        const event = sorted[i]
+        const next = sorted[(i + 1) % n]
+        if (!event || !next || event.type !== 'asleep') continue
+        const rawDur = (next.minuteOfDay - event.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+        const dur = rawDur === 0 ? MINUTES_PER_DAY : rawDur
+        if (dur > longestSleepDur) {
+            longestSleepDur = dur
+            longestSleepIdx = i
+        }
     }
+
+    const derivedBedId = longestSleepIdx !== -1 ? (sorted[longestSleepIdx]?.id ?? null) : null
+    const derivedWakeId =
+        longestSleepIdx !== -1 ? (sorted[(longestSleepIdx + 1) % n]?.id ?? null) : null
+
+    return sorted.map((event) => {
+        if (!hasBed && event.id === derivedBedId) {
+            return { ...event, anchor: 'bedtime' as const }
+        }
+        if (!hasWake && event.id === derivedWakeId) {
+            return { ...event, anchor: 'morning-wake' as const }
+        }
+        return event
+    })
 }
+
+export const getAnchorEventIds = (
+    events: readonly ScheduleEvent[],
+): { morningWakeId: string | null; bedtimeId: string | null } =>
+    resolveAnchorIds(sortScheduleEvents(events))
 
 /**
  * Classifies all schedule events in chronological sleep-day order starting from Morning Wake.
@@ -229,7 +299,7 @@ export const classifyScheduleEvents = (
         const durationMinutes = rawDur === 0 ? MINUTES_PER_DAY : rawDur
         const isSleepStart = event.type === 'asleep'
         const removable = isSleepStart && canRemoveSleep
-        const removeLabel: 'Remove sleep' | null = removable ? 'Remove sleep' : null
+        const removeLabel: 'Remove nap' | null = removable ? 'Remove nap' : null
 
         if (event.id === morningWakeId) {
             return {
@@ -237,9 +307,9 @@ export const classifyScheduleEvents = (
                 kind: 'morning-wake',
                 label: 'Morning Wake',
                 durationMinutes,
-                removable,
-                removeLabel,
-                isPairStart: isSleepStart,
+                removable: false,
+                removeLabel: null,
+                isPairStart: false,
             }
         }
 
@@ -249,9 +319,9 @@ export const classifyScheduleEvents = (
                 kind: 'bedtime',
                 label: 'Bedtime',
                 durationMinutes,
-                removable,
-                removeLabel,
-                isPairStart: isSleepStart,
+                removable: false,
+                removeLabel: null,
+                isPairStart: false,
             }
         }
 
@@ -290,9 +360,9 @@ export const classifyScheduleEvents = (
                 kind: 'night-wake-start',
                 label: `Night Wake${suffix}`,
                 durationMinutes,
-                removable: false,
-                removeLabel: null,
-                isPairStart: false,
+                removable: true,
+                removeLabel: 'Remove night wake',
+                isPairStart: true,
             }
         }
 
@@ -302,18 +372,12 @@ export const classifyScheduleEvents = (
             kind: 'night-wake-end',
             label: `Back to Sleep${suffix}`,
             durationMinutes,
-            removable,
-            removeLabel,
-            isPairStart: true,
+            removable: false,
+            removeLabel: null,
+            isPairStart: false,
         }
     })
 }
-
-export const getClassifiedScheduleEvent = (
-    eventId: string,
-    events: readonly ScheduleEvent[],
-): ClassifiedScheduleEvent | null =>
-    classifyScheduleEvents(events).find((item) => item.event.id === eventId) ?? null
 
 export const getScheduleWedgeInfo = (
     startEventId: string,
@@ -325,32 +389,68 @@ export const getScheduleWedgeInfo = (
     const endItem = classified[(index + 1) % classified.length]
     if (index === -1 || !startItem || !endItem) return null
 
-    const napCount = classified.filter((item) => item.kind === 'nap-start').length
-    let name: string
-    switch (startItem.kind) {
-        case 'morning-wake':
-            name = napCount > 0 ? 'Wake Window 1' : 'Daytime Awake'
-            break
-        case 'nap-start':
-            name = startItem.label.replace(/ Start$/, '')
-            break
-        case 'nap-end': {
-            const napNum = Number(startItem.label.match(/\d+/)?.[0] ?? 1)
-            name = `Wake Window ${napNum + 1}`
-            break
+    if (startItem.kind === 'morning-wake' || startItem.kind === 'nap-end') {
+        const morningWakeItem = classified.find((item) => item.kind === 'morning-wake') ?? startItem
+        const bedtimeItem = classified.find((item) => item.kind === 'bedtime') ?? endItem
+        const dayWakeSegments = classified.filter(
+            (item) => item.kind === 'morning-wake' || item.kind === 'nap-end',
+        )
+        const napSegments = classified.filter((item) => item.kind === 'nap-start')
+        const segmentDurations = dayWakeSegments.map((item) => item.durationMinutes)
+        const secondarySegmentDurations = napSegments.map((item) => item.durationMinutes)
+        const totalAwakeMinutes = segmentDurations.reduce((sum, minutes) => sum + minutes, 0)
+        return {
+            startEvent: morningWakeItem.event,
+            endEvent: bedtimeItem.event,
+            startLabel: 'Wake Time',
+            endLabel: 'Bed Time',
+            name: 'Day',
+            state: 'awake',
+            durationMinutes: totalAwakeMinutes,
+            segmentLabel: 'Wake',
+            segmentDurations,
+            secondarySegmentLabel: 'Sleep',
+            secondarySegmentDurations,
+            removable: false,
+            removeLabel: null,
         }
-        case 'bedtime':
-        case 'night-wake-end':
-            name = 'Night Sleep'
-            break
-        case 'night-wake-start':
-            name = startItem.label
-            break
     }
+
+    if (startItem.kind === 'bedtime' || startItem.kind === 'night-wake-end') {
+        const bedtimeItem = classified.find((item) => item.kind === 'bedtime') ?? startItem
+        const morningWakeItem = classified.find((item) => item.kind === 'morning-wake') ?? endItem
+        const nightSleepSegments = classified.filter(
+            (item) => item.kind === 'bedtime' || item.kind === 'night-wake-end',
+        )
+        const nightWakeSegments = classified.filter((item) => item.kind === 'night-wake-start')
+        const segmentDurations = nightSleepSegments.map((item) => item.durationMinutes)
+        const secondarySegmentDurations = nightWakeSegments.map((item) => item.durationMinutes)
+        const totalSleepMinutes = segmentDurations.reduce((sum, minutes) => sum + minutes, 0)
+        return {
+            startEvent: morningWakeItem.event,
+            endEvent: bedtimeItem.event,
+            startLabel: 'Wake Time',
+            endLabel: 'Bed Time',
+            name: 'Night',
+            state: 'asleep',
+            durationMinutes: totalSleepMinutes,
+            segmentLabel: 'Sleep',
+            segmentDurations,
+            secondarySegmentLabel: 'Wake',
+            secondarySegmentDurations,
+            removable: false,
+            removeLabel: null,
+        }
+    }
+
+    const name =
+        startItem.kind === 'nap-start' ? startItem.label.replace(/ Start$/, '') : startItem.label
 
     return {
         startEvent: startItem.event,
         endEvent: endItem.event,
+        startLabel: 'Start',
+        endLabel: 'End',
         name,
         state: startItem.event.type,
         durationMinutes: startItem.durationMinutes,
@@ -403,91 +503,83 @@ export const clampEventMinute = (
     return normalizeMinuteOfDay(prev.minuteOfDay + clampedRel)
 }
 
-/**
- * Moves a wedge (start event + following end event) to `candidateStartMinute` while preserving
- * its exact duration and staying at least `minGap` minutes away from outer neighbors.
- */
-export const moveWedgeEvents = (
-    events: readonly ScheduleEvent[],
-    startEventId: string,
-    candidateStartMinute: number,
-    minGap: number = MIN_EVENT_GAP_MIN,
-): ScheduleEvent[] => {
-    const sorted = sortScheduleEvents(events)
-    const n = sorted.length
-    if (n < 2) return [...sorted]
-
-    const startIdx = sorted.findIndex((e) => e.id === startEventId)
-    if (startIdx === -1) return [...sorted]
-
-    const endIdx = (startIdx + 1) % n
-    const startEvent = sorted[startIdx]
-    const endEvent = sorted[endIdx]
-    if (!startEvent || !endEvent) return [...sorted]
-
-    const duration =
-        (endEvent.minuteOfDay - startEvent.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
-    const normalizedCandidate = normalizeMinuteOfDay(candidateStartMinute)
-
-    let clampedStart = normalizedCandidate
-    if (n > 2) {
-        const prevOuter = sorted[(startIdx - 1 + n) % n]
-        const nextOuter = sorted[(startIdx + 2) % n]
-        if (prevOuter && nextOuter) {
-            const rawOuterSpan =
-                (nextOuter.minuteOfDay - prevOuter.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
-            const outerSpan = rawOuterSpan === 0 ? MINUTES_PER_DAY : rawOuterSpan
-            const minRel = Math.min(minGap, Math.floor((outerSpan - duration) / 2))
-            const maxRel = Math.max(minRel, outerSpan - minRel - duration)
-            const relCandidate =
-                (normalizedCandidate - prevOuter.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
-
-            if (relCandidate < minRel || relCandidate > maxRel) {
-                const distToLow = Math.min(
-                    (relCandidate - minRel + MINUTES_PER_DAY) % MINUTES_PER_DAY,
-                    (minRel - relCandidate + MINUTES_PER_DAY) % MINUTES_PER_DAY,
-                )
-                const distToHigh = Math.min(
-                    (relCandidate - maxRel + MINUTES_PER_DAY) % MINUTES_PER_DAY,
-                    (maxRel - relCandidate + MINUTES_PER_DAY) % MINUTES_PER_DAY,
-                )
-                clampedStart = normalizeMinuteOfDay(
-                    prevOuter.minuteOfDay + (distToLow <= distToHigh ? minRel : maxRel),
-                )
-            }
-        }
-    }
-
-    const clampedEnd = normalizeMinuteOfDay(clampedStart + duration)
-    return sortScheduleEvents(
-        sorted.map((event) => {
-            if (event.id === startEvent.id) return { ...event, minuteOfDay: clampedStart }
-            if (event.id === endEvent.id) return { ...event, minuteOfDay: clampedEnd }
-            return event
-        }),
-    )
+export interface AddScheduleWindowResult {
+    events: ScheduleEvent[]
+    addedStartEventId: string | null
 }
 
-export const addSleepWindowPair = (events: readonly ScheduleEvent[]): ScheduleEvent[] => {
-    const awakeWedges = buildScheduleWedges(events).filter((wedge) => wedge.state === 'awake')
-    if (awakeWedges.length === 0) return sortScheduleEvents(events)
+export const addSleepWindowPair = (events: readonly ScheduleEvent[]): AddScheduleWindowResult => {
+    const awakeWedges = buildScheduleWedges(events).filter(
+        (wedge) => wedge.state === 'awake' && !wedge.isNightWake,
+    )
+    if (awakeWedges.length === 0) {
+        return { events: sortScheduleEvents(events), addedStartEventId: null }
+    }
 
     const longest = awakeWedges.reduce((best, current) =>
         current.endMin - current.startMin > best.endMin - best.startMin ? current : best,
     )
     const longestDuration = longest.endMin - longest.startMin
-    if (longestDuration < MIN_EVENT_GAP_MIN * 3) return sortScheduleEvents(events)
+    if (longestDuration < MIN_EVENT_GAP_MIN * 3) {
+        return { events: sortScheduleEvents(events), addedStartEventId: null }
+    }
 
     const sleepDuration = Math.min(60, Math.max(MIN_EVENT_GAP_MIN, Math.floor(longestDuration / 3)))
     const sleepStart = snapMinuteOfDay(longest.startMin + (longestDuration - sleepDuration) / 2)
     const sleepEnd = snapMinuteOfDay(sleepStart + sleepDuration)
     const stamp = Date.now().toString(36)
+    const startId = `evt-sleep-${stamp}-start`
 
-    return sortScheduleEvents([
-        ...events,
-        { id: `evt-sleep-${stamp}-start`, type: 'asleep', minuteOfDay: sleepStart },
-        { id: `evt-sleep-${stamp}-end`, type: 'awake', minuteOfDay: sleepEnd },
-    ])
+    return {
+        events: sortScheduleEvents([
+            ...events,
+            { id: startId, type: 'asleep', minuteOfDay: sleepStart },
+            { id: `evt-sleep-${stamp}-end`, type: 'awake', minuteOfDay: sleepEnd },
+        ]),
+        addedStartEventId: startId,
+    }
+}
+
+export const addNightWakePair = (events: readonly ScheduleEvent[]): AddScheduleWindowResult => {
+    const anchored = ensureScheduleAnchors(events)
+    const classified = classifyScheduleEvents(anchored)
+    const nightSleeps = classified.filter(
+        (item) => item.kind === 'bedtime' || item.kind === 'night-wake-end',
+    )
+    const candidates =
+        nightSleeps.length > 0
+            ? nightSleeps
+            : classified.filter((item) => item.event.type === 'asleep')
+    if (candidates.length === 0) {
+        return { events: anchored, addedStartEventId: null }
+    }
+
+    const longest = candidates.reduce((best, current) =>
+        current.durationMinutes > best.durationMinutes ? current : best,
+    )
+    if (longest.durationMinutes < MIN_EVENT_GAP_MIN * 3) {
+        return { events: anchored, addedStartEventId: null }
+    }
+
+    const wakeDuration = Math.min(
+        30,
+        Math.max(MIN_EVENT_GAP_MIN, Math.floor(longest.durationMinutes / 4)),
+    )
+    const wakeStart = snapMinuteOfDay(
+        longest.event.minuteOfDay + (longest.durationMinutes - wakeDuration) / 2,
+    )
+    const wakeEnd = snapMinuteOfDay(wakeStart + wakeDuration)
+    const stamp = Date.now().toString(36)
+    const startId = `evt-night-wake-${stamp}-start`
+
+    return {
+        events: sortScheduleEvents([
+            ...anchored,
+            { id: startId, type: 'awake', minuteOfDay: wakeStart },
+            { id: `evt-night-wake-${stamp}-end`, type: 'asleep', minuteOfDay: wakeEnd },
+        ]),
+        addedStartEventId: startId,
+    }
 }
 
 export const removeSleepWindowPair = (
@@ -495,18 +587,27 @@ export const removeSleepWindowPair = (
     startEventId: string,
 ): ScheduleEvent[] => {
     const sorted = sortScheduleEvents(events)
-    const sleepCount = sorted.filter((event) => event.type === 'asleep').length
-    if (sleepCount <= 1) return sorted
-
     const startIndex = sorted.findIndex((event) => event.id === startEventId)
     const startEvent = sorted[startIndex]
-    if (startIndex === -1 || !startEvent || startEvent.type !== 'asleep') return sorted
+    if (startIndex === -1 || !startEvent) return sorted
 
-    const endEvent = sorted[(startIndex + 1) % sorted.length]
-    const removeIds = new Set<string>([startEvent.id])
-    if (endEvent && endEvent.type === 'awake') {
-        removeIds.add(endEvent.id)
+    if (startEvent.type === 'asleep') {
+        const sleepCount = sorted.filter((event) => event.type === 'asleep').length
+        if (sleepCount <= 1) return sorted
+
+        const endEvent = sorted[(startIndex + 1) % sorted.length]
+        const removeIds = new Set<string>([startEvent.id])
+        if (endEvent && endEvent.type === 'awake') {
+            removeIds.add(endEvent.id)
+        }
+        return sortScheduleEvents(sorted.filter((event) => !removeIds.has(event.id)))
     }
 
+    // Removing a night wake removes the awake start event and its following return-to-sleep event.
+    const endEvent = sorted[(startIndex + 1) % sorted.length]
+    const removeIds = new Set<string>([startEvent.id])
+    if (endEvent && endEvent.type === 'asleep' && endEvent.anchor !== 'bedtime') {
+        removeIds.add(endEvent.id)
+    }
     return sortScheduleEvents(sorted.filter((event) => !removeIds.has(event.id)))
 }

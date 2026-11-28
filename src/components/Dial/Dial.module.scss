@@ -22,6 +22,13 @@
 
     &[data-dial-interactive="true"] {
         pointer-events: auto;
+    }
+
+    &[data-mode="schedule"][data-dial-interactive="true"] {
+        cursor: pointer;
+    }
+
+    &[data-mode="today"][data-dial-interactive="true"] {
         cursor: grab;
     }
 
@@ -40,7 +47,7 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    inline-size: calc(var(--dial-size) * 1120 / 760);
-    block-size: calc(var(--dial-size) * 1120 / 760);
+    inline-size: calc(var(--dial-size) * var(--dial-rotor-ratio));
+    block-size: calc(var(--dial-size) * var(--dial-rotor-ratio));
     transform: translate(-50%, -50%);
 }

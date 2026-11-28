@@ -51,8 +51,6 @@
     --theme-transition: 600ms ease;
     --font-sans: "Quicksand", system-ui, -apple-system, sans-serif;
     --dial-size: clamp(28rem, 118vw, 42rem);
-    --dial-schedule-scale: 0.62;
-    --dial-schedule-top: calc(50dvh - var(--dial-size) * var(--dial-schedule-scale) / 2);
     --header-top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
 
     color-scheme: dark;
@@ -61,27 +59,6 @@
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.5;
-}
-
-:root[data-theme="day"] {
-    --bg: #{$blue-800};
-    --bg-gradient: #{$blue-light-gradient};
-    --fg: #{$blue-300};
-    --accent: #{$purple-100};
-    --accent-fg: #ffffff;
-    --primary-stat: #{$purple-100};
-    --primary-muted: rgb(43 41 65 / 0.5);
-    --secondary-stat: #{$purple-200};
-    --secondary-muted: rgb(43 41 65 / 0.5);
-    --muted: rgb(43 41 65 / 0.5);
-    --subtle: rgb(43 41 65 / 0.6);
-    --surface: rgb(255 255 255 / 0.45);
-    --border: rgb(43 41 65 / 0.14);
-    --drawer-bg: rgb(161 196 232 / 0.58);
-    --drawer-title: rgb(43 41 65 / 0.5);
-    --error: #b71c1c;
-
-    color-scheme: light;
 }
 
 *,
@@ -124,21 +101,6 @@ body {
     -webkit-user-select: none;
     user-select: none;
     touch-action: manipulation;
-
-    &::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        pointer-events: none;
-        background-image: var(--blue-light-gradient);
-        opacity: 0;
-        transition: opacity var(--theme-transition);
-    }
-}
-
-:root[data-theme="day"] body::before {
-    opacity: 1;
 }
 
 #root {

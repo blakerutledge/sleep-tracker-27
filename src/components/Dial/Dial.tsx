@@ -10,6 +10,7 @@ import {
     Texture,
 } from 'pixi.js'
 import {
+    type CSSProperties,
     memo,
     type PointerEvent as ReactPointerEvent,
     type Ref,
@@ -22,32 +23,33 @@ import {
 } from 'react'
 import {
     buildScheduleWedges,
+    classifyScheduleEvents,
+    getAnchorEventIds,
     MINUTES_PER_DAY,
-    normalizeMinuteOfDay,
     PLACEHOLDER_SCHEDULE_EVENTS,
     type ScheduleEvent,
     type ScheduleWedge,
-    SNAP_STEP_MIN,
-    snapMinuteOfDay,
+    sortScheduleEvents,
 } from '#src/data/schedule.ts'
 import { useDevMode } from '#src/lib/devMode.ts'
 import { useSunLocation } from '#src/lib/sun.ts'
 import { epochToZonedDateTime } from '#src/lib/temporal.ts'
 import type { PageId } from '#src/pages/pages.ts'
+import { DIAL_COLORS, hexToNumber } from '#src/styles/palette.ts'
 import styles from './Dial.module.scss'
 import {
     buildDialGeometry,
     createDialShader,
-    DIAL_BARRIER_ICON_RADIUS,
+    DIAL_ANCHOR_RADIUS,
+    DIAL_AXIS_ICON_RADIUS,
+    DIAL_AXIS_ICON_SIZE,
     DIAL_CANVAS_SIZE,
     DIAL_DISC_RADIUS,
-    DIAL_HANDLE_HIT_RADIUS,
-    DIAL_HANDLE_NODE_RADIUS,
+    DIAL_HANDLE_ICON_SIZE,
     DIAL_HANDLE_RADIUS,
-    DIAL_INNER_RADIUS,
-    DIAL_SUN_RING_INNER_RADIUS,
-    DIAL_SUN_RING_OUTER_RADIUS,
-    DIAL_WEDGE_ICON_RADIUS,
+    DIAL_HANDLE_RING_RADIUS,
+    DIAL_HANDLE_STROKE_WIDTH,
+    DIAL_RING_INNER_RADIUS,
     dialAngleToMinute,
     minuteToDialAngle,
 } from './dialGeometry.ts'
@@ -64,23 +66,23 @@ interface DialProps {
     activePage: PageId
     hidden?: boolean
     events?: readonly ScheduleEvent[]
-    selectedEventId?: string | null
     selectedWedgeId?: string | null
     onMinuteChange?: (minuteOfDay: number) => void
-    onSelectEvent?: (eventId: string | null) => void
     onSelectWedge?: (startEventId: string | null) => void
-    onChangeEventMinute?: (eventId: string, minuteOfDay: number) => void
-    onMoveWedge?: (startEventId: string, candidateStartMinute: number) => void
 }
 
-interface BarrierIcons {
-    sunrise: Sprite
-    sunset: Sprite
+interface AxisIcons {
+    sun: Sprite
+    moon: Sprite
 }
 
-interface HandleSpriteEntry {
+interface HandleNodeEntry {
     eventId: string
-    icon: Sprite
+    container: Container
+    icon: Sprite | null
+    cos: number
+    sin: number
+    idleAlpha: number
 }
 
 interface DragState {
@@ -97,58 +99,44 @@ interface DragState {
     velocityRadPerMs: number
 }
 
-interface HandleDragState {
+interface ScheduleTapState {
     pointerId: number
-    eventId: string
     startX: number
     startY: number
-    rect: DOMRect
-    lastMinute: number | null
-    moved: boolean
-}
-
-interface WedgeDragState {
-    pointerId: number
-    startEventId: string
-    initialStartMinute: number
-    startX: number
-    startY: number
-    lastAngle: number
-    cumulativeRad: number
-    rect: DOMRect
-    lastTargetStart: number | null
-    moved: boolean
+    wedgeId: string | null
 }
 
 const NOON_MINUTE = 720
 const TODAY_SCALE = 2.0
 const TODAY_Y_RATIO = 0.72
-const SCHEDULE_SCALE = 0.62
+const SCHEDULE_WIDTH_RATIO = 0.96
+const SCHEDULE_MAX_HEIGHT_RATIO = 0.68
 const MAX_CANVAS_BACKING_PX = 2048
 const ICON_RASTER_SIZE = 256
 const TRANSITION_DURATION_SEC = 0.9
 export const DIAL_FADE_DURATION_MS = 220
 const HIDDEN_DURATION_SEC = DIAL_FADE_DURATION_MS / 1000
 
-// Palette hex values matching src/styles/_colors.scss
-const BLUE_100 = 0x0a101c
-const BLUE_200 = 0x1b1c33
-const BLUE_900 = 0xdcf1f7
-const YELLOW_200 = 0xf8cb4e
-const YELLOW_300 = 0xfff187
-const PURPLE_100 = 0x854c76
-
-const WEDGE_ICON_MAX_SIZE = 74
-const WEDGE_ICON_MIN_SIZE = 26
-const WEDGE_ICON_ARC_FILL = 0.68
-const WEDGE_ICON_ALPHA = 0.88
+const NOON_SUN_ICON_COLOR = hexToNumber(DIAL_COLORS.noonSunIcon)
+const MIDNIGHT_MOON_ICON_COLOR = hexToNumber(DIAL_COLORS.midnightMoonIcon)
+const WAKE_HANDLE_COLOR = hexToNumber(DIAL_COLORS.wakeHandle)
+const SLEEP_HANDLE_COLOR = hexToNumber(DIAL_COLORS.sleepHandle)
+const MORNING_WAKE_ANCHOR_FILL = hexToNumber(DIAL_COLORS.morningWakeAnchor.fillColor)
+const MORNING_WAKE_ANCHOR_ICON = hexToNumber(DIAL_COLORS.morningWakeAnchor.iconColor)
+const BEDTIME_ANCHOR_FILL = hexToNumber(DIAL_COLORS.bedtimeAnchor.fillColor)
+const BEDTIME_ANCHOR_ICON = hexToNumber(DIAL_COLORS.bedtimeAnchor.iconColor)
 
 const EDGE_SWIPE_GUARD_PX = 36
 const SWIPE_LOCK_PX = 8
-const HANDLE_DRAG_THRESHOLD_PX = 6
+const TAP_SLOP_PX = 10
+const HANDLE_SLIDE_OFFSET = 28
 const MOMENTUM_DAMPING_PER_MS = 0.009
 const MOMENTUM_STOP_RAD_PER_MS = 0.00004
 const MAX_VELOCITY_RAD_PER_MS = 0.012
+
+const DIAL_ROTOR_STYLE = {
+    '--dial-rotor-ratio': DIAL_CANVAS_SIZE / (DIAL_DISC_RADIUS * 2),
+} as CSSProperties
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value))
 
@@ -234,48 +222,6 @@ const createIconSprite = (texture: Texture, targetHeight: number, tint: number):
     return sprite
 }
 
-const positionPolar = (sprite: Sprite, angle: number, radius: number): void => {
-    sprite.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius)
-}
-
-const getWedgeIconTint = (state: ScheduleWedge['state']): number =>
-    state === 'awake' ? BLUE_200 : BLUE_900
-
-const drawSunRays = (graphics: Graphics, sunriseMin: number, sunsetMin: number): void => {
-    graphics.clear()
-    for (const minute of [sunriseMin, sunsetMin]) {
-        const angle = minuteToDialAngle(minute)
-        const cos = Math.cos(angle)
-        const sin = Math.sin(angle)
-        graphics
-            .moveTo(cos * DIAL_SUN_RING_INNER_RADIUS, sin * DIAL_SUN_RING_INNER_RADIUS)
-            .lineTo(cos * DIAL_SUN_RING_OUTER_RADIUS, sin * DIAL_SUN_RING_OUTER_RADIUS)
-    }
-    graphics.stroke({ width: 3.5, color: YELLOW_200, alpha: 0.85, cap: 'round' })
-}
-
-const drawNowMarker = (graphics: Graphics, minuteOfDay: number): void => {
-    graphics.clear()
-    const angle = minuteToDialAngle(minuteOfDay)
-    const cos = Math.cos(angle)
-    const sin = Math.sin(angle)
-    const perpX = -sin
-    const perpY = cos
-    const tipR = DIAL_DISC_RADIUS + 4
-    const baseR = DIAL_DISC_RADIUS + 20
-    graphics
-        .moveTo(cos * tipR, sin * tipR)
-        .lineTo(cos * baseR + perpX * 10, sin * baseR + perpY * 10)
-        .lineTo(cos * baseR - perpX * 10, sin * baseR - perpY * 10)
-        .closePath()
-        .fill({ color: YELLOW_200, alpha: 0.95 })
-}
-
-const positionBarrierIcons = (icons: BarrierIcons, sunriseMin: number, sunsetMin: number): void => {
-    positionPolar(icons.sunrise, minuteToDialAngle(sunriseMin), DIAL_BARRIER_ICON_RADIUS)
-    positionPolar(icons.sunset, minuteToDialAngle(sunsetMin), DIAL_BARRIER_ICON_RADIUS)
-}
-
 const clientToRotorLocal = (
     clientX: number,
     clientY: number,
@@ -301,28 +247,24 @@ export const Dial = memo(
         activePage,
         hidden = false,
         events = PLACEHOLDER_SCHEDULE_EVENTS,
-        selectedEventId = null,
         selectedWedgeId = null,
         onMinuteChange,
-        onSelectEvent,
         onSelectWedge,
-        onChangeEventMinute,
-        onMoveWedge,
     }: DialProps) => {
         const circleRef = useRef<HTMLDivElement | null>(null)
         const hostRef = useRef<HTMLDivElement | null>(null)
         const appRef = useRef<Application | null>(null)
         const rotorRef = useRef<Container | null>(null)
-        const meshRef = useRef<Mesh<Geometry, Shader> | null>(null)
-        const raysRef = useRef<Graphics | null>(null)
-        const northMarkerRef = useRef<Graphics | null>(null)
-        const barrierIconsRef = useRef<BarrierIcons | null>(null)
-        const wedgeIconsLayerRef = useRef<Container | null>(null)
-        const wedgeSpritesRef = useRef<Map<string, Sprite>>(new Map())
-        const wedgeTexturesRef = useRef<{ asleep: Texture; awake: Texture } | null>(null)
+        const wedgeMeshRef = useRef<Mesh<Geometry, Shader> | null>(null)
+        const axisIconsRef = useRef<AxisIcons | null>(null)
         const handlesLayerRef = useRef<Container | null>(null)
-        const handleGraphicsRef = useRef<Graphics | null>(null)
-        const handleSpritesRef = useRef<Map<string, HandleSpriteEntry>>(new Map())
+        const handleNodesRef = useRef<Map<string, HandleNodeEntry>>(new Map())
+        const anchorsLayerRef = useRef<Container | null>(null)
+        const anchorNodesRef = useRef<Map<string, HandleNodeEntry>>(new Map())
+        const anchorIdsRef = useRef<{ morningWakeId: string | null; bedtimeId: string | null }>({
+            morningWakeId: null,
+            bedtimeId: null,
+        })
         const handleTexturesRef = useRef<{ up: Texture; down: Texture } | null>(null)
         const renderRafRef = useRef<number | null>(null)
         const layoutCacheRef = useRef<{
@@ -330,6 +272,7 @@ export const Dial = memo(
             dialSize: number
             todayY: number
             scheduleY: number
+            scheduleScale: number
         } | null>(null)
 
         const currentRotationRef = useRef<number>(0)
@@ -338,10 +281,21 @@ export const Dial = memo(
         })
         const transitionTweenRef = useRef<gsap.core.Tween | null>(null)
         const hideTweenRef = useRef<gsap.core.Tween | null>(null)
+        const selectionTweenRef = useRef<gsap.core.Animation | null>(null)
+        const selectionStateRef = useRef<{
+            selection: number
+            dim: number
+            handleProgress: number
+        }>({
+            selection: selectedWedgeId ? 1 : 0,
+            dim: selectedWedgeId ? 1 : 0,
+            handleProgress: selectedWedgeId ? 1 : 0,
+        })
+        const activeVisualWedgeIdRef = useRef<string | null>(selectedWedgeId)
+        const prevVisualWedgeIdRef = useRef<string | null>(null)
         const momentumRafRef = useRef<number | null>(null)
         const dragRef = useRef<DragState | null>(null)
-        const handleDragRef = useRef<HandleDragState | null>(null)
-        const wedgeDragRef = useRef<WedgeDragState | null>(null)
+        const scheduleTapRef = useRef<ScheduleTapState | null>(null)
         const manualControlRef = useRef<boolean>(false)
         const scrubbingRef = useRef<boolean>(false)
         const lastEmittedMinuteRef = useRef<number | null>(null)
@@ -361,23 +315,11 @@ export const Dial = memo(
         const onMinuteChangeRef = useRef(onMinuteChange)
         onMinuteChangeRef.current = onMinuteChange
 
-        const onSelectEventRef = useRef(onSelectEvent)
-        onSelectEventRef.current = onSelectEvent
-
         const onSelectWedgeRef = useRef(onSelectWedge)
         onSelectWedgeRef.current = onSelectWedge
 
-        const onChangeEventMinuteRef = useRef(onChangeEventMinute)
-        onChangeEventMinuteRef.current = onChangeEventMinute
-
-        const onMoveWedgeRef = useRef(onMoveWedge)
-        onMoveWedgeRef.current = onMoveWedge
-
         const eventsRef = useRef(events)
         eventsRef.current = events
-
-        const selectedEventIdRef = useRef(selectedEventId)
-        selectedEventIdRef.current = selectedEventId
 
         const selectedWedgeIdRef = useRef(selectedWedgeId)
         selectedWedgeIdRef.current = selectedWedgeId
@@ -413,16 +355,16 @@ export const Dial = memo(
         }, [])
 
         const syncUprightIcons = useCallback((rad: number) => {
-            const barrierIcons = barrierIconsRef.current
-            if (barrierIcons) {
-                barrierIcons.sunrise.rotation = -rad
-                barrierIcons.sunset.rotation = -rad
+            const axisIcons = axisIconsRef.current
+            if (axisIcons) {
+                axisIcons.sun.rotation = -rad
+                axisIcons.moon.rotation = -rad
             }
-            for (const sprite of wedgeSpritesRef.current.values()) {
-                sprite.rotation = -rad
+            for (const entry of handleNodesRef.current.values()) {
+                if (entry.icon) entry.icon.rotation = -rad
             }
-            for (const entry of handleSpritesRef.current.values()) {
-                entry.icon.rotation = -rad
+            for (const entry of anchorNodesRef.current.values()) {
+                if (entry.icon) entry.icon.rotation = -rad
             }
         }, [])
 
@@ -442,163 +384,185 @@ export const Dial = memo(
             [emitMinuteForRad, requestRender, syncUprightIcons],
         )
 
+        const syncHandlePositions = useCallback(() => {
+            const liveRadius =
+                DIAL_HANDLE_RING_RADIUS -
+                (1 - clamp01(selectionStateRef.current.handleProgress)) * HANDLE_SLIDE_OFFSET
+            for (const entry of handleNodesRef.current.values()) {
+                entry.container.position.set(entry.cos * liveRadius, entry.sin * liveRadius)
+            }
+        }, [])
+
+        const syncAnchorAlphas = useCallback(() => {
+            const { morningWakeId, bedtimeId } = anchorIdsRef.current
+            const sel = clamp01(selectionStateRef.current.selection)
+            const dim = clamp01(selectionStateRef.current.dim)
+            const dimScale = DIAL_COLORS.unselectedAlphaScale
+            const prevWedgeId = prevVisualWedgeIdRef.current
+            const activeWedgeId = activeVisualWedgeIdRef.current
+
+            // Both permanent anchors highlight at full opacity when Day Wake or Night Sleep is selected.
+            const isHalfSelected = (wedgeId: string | null): number =>
+                wedgeId !== null && (wedgeId === bedtimeId || wedgeId === morningWakeId) ? 1 : 0
+            const prevHalfSelected = isHalfSelected(prevWedgeId)
+            const currHalfSelected = isHalfSelected(activeWedgeId)
+            const highlight = prevHalfSelected + (currHalfSelected - prevHalfSelected) * sel
+
+            for (const entry of anchorNodesRef.current.values()) {
+                const nonHighlightedAlpha = entry.idleAlpha * (1 - (1 - dimScale) * dim)
+                entry.container.alpha = nonHighlightedAlpha + (1 - nonHighlightedAlpha) * highlight
+            }
+        }, [])
+
         const rebuildHandles = useCallback(() => {
             const layer = handlesLayerRef.current
-            const graphics = handleGraphicsRef.current
             const textures = handleTexturesRef.current
-            if (!layer || !graphics) return
+            if (!layer) return
 
-            graphics.clear()
+            for (const entry of handleNodesRef.current.values()) {
+                layer.removeChild(entry.container)
+                entry.container.destroy({ children: true })
+            }
+            handleNodesRef.current.clear()
 
-            const currentEvents = eventsRef.current
-            const activeId = selectedEventIdRef.current
+            const activeWedgeId = activeVisualWedgeIdRef.current
             const currentRad = currentRotationRef.current
-            const existingSprites = handleSpritesRef.current
-            const activeIds = new Set<string>()
 
-            for (const event of currentEvents) {
-                activeIds.add(event.id)
-                const isSelected = event.id === activeId
+            const visibleEvents: ScheduleEvent[] = []
+            if (activeWedgeId) {
+                const classified = classifyScheduleEvents(eventsRef.current)
+                const startIdx = classified.findIndex((item) => item.event.id === activeWedgeId)
+                const startItem = classified[startIdx]
+                // Only naps and night wakes show transient handles (Day Wake and Night Sleep use
+                // the permanent Bedtime and Morning Wake anchors).
+                if (
+                    startItem &&
+                    (startItem.kind === 'nap-start' || startItem.kind === 'night-wake-start')
+                ) {
+                    const endItem = classified[(startIdx + 1) % classified.length]
+                    visibleEvents.push(startItem.event)
+                    if (endItem && endItem.event.id !== startItem.event.id) {
+                        visibleEvents.push(endItem.event)
+                    }
+                }
+            }
+
+            for (const event of visibleEvents) {
+                const angle = minuteToDialAngle(event.minuteOfDay)
+                const handleColor = event.type === 'awake' ? WAKE_HANDLE_COLOR : SLEEP_HANDLE_COLOR
+                const container = new Container()
+                const ring = new Graphics()
+                    .circle(0, 0, DIAL_HANDLE_RADIUS)
+                    .stroke({ width: DIAL_HANDLE_STROKE_WIDTH, color: handleColor })
+                container.addChild(ring)
+
+                let icon: Sprite | null = null
+                if (textures) {
+                    const tex = event.type === 'awake' ? textures.up : textures.down
+                    icon = createIconSprite(tex, DIAL_HANDLE_ICON_SIZE, handleColor)
+                    icon.rotation = -currentRad
+                    container.addChild(icon)
+                }
+
+                layer.addChild(container)
+                handleNodesRef.current.set(event.id, {
+                    eventId: event.id,
+                    container,
+                    icon,
+                    cos: Math.cos(angle),
+                    sin: Math.sin(angle),
+                    idleAlpha: 1,
+                })
+            }
+
+            syncHandlePositions()
+            requestRender()
+        }, [requestRender, syncHandlePositions])
+
+        const rebuildAnchors = useCallback(() => {
+            const layer = anchorsLayerRef.current
+            const textures = handleTexturesRef.current
+            if (!layer) return
+
+            for (const entry of anchorNodesRef.current.values()) {
+                layer.removeChild(entry.container)
+                entry.container.destroy({ children: true })
+            }
+            anchorNodesRef.current.clear()
+
+            const sorted = sortScheduleEvents(eventsRef.current)
+            const { morningWakeId, bedtimeId } = getAnchorEventIds(sorted)
+            anchorIdsRef.current = { morningWakeId, bedtimeId }
+            const currentRad = currentRotationRef.current
+
+            const anchorSpecs = [
+                {
+                    id: morningWakeId,
+                    fillColor: MORNING_WAKE_ANCHOR_FILL,
+                    iconTint: MORNING_WAKE_ANCHOR_ICON,
+                    idleAlpha: DIAL_COLORS.morningWakeAnchor.idleAlpha,
+                    tex: textures?.up ?? null,
+                },
+                {
+                    id: bedtimeId,
+                    fillColor: BEDTIME_ANCHOR_FILL,
+                    iconTint: BEDTIME_ANCHOR_ICON,
+                    idleAlpha: DIAL_COLORS.bedtimeAnchor.idleAlpha,
+                    tex: textures?.down ?? null,
+                },
+            ]
+
+            for (const spec of anchorSpecs) {
+                if (!spec.id) continue
+                const event = sorted.find((item) => item.id === spec.id)
+                if (!event) continue
+
                 const angle = minuteToDialAngle(event.minuteOfDay)
                 const cos = Math.cos(angle)
                 const sin = Math.sin(angle)
-                const nodeRadius = isSelected
-                    ? DIAL_HANDLE_NODE_RADIUS + 4
-                    : DIAL_HANDLE_NODE_RADIUS
-                const spokeEnd = DIAL_HANDLE_RADIUS - nodeRadius
+                const container = new Container()
+                container.position.set(cos * DIAL_HANDLE_RING_RADIUS, sin * DIAL_HANDLE_RING_RADIUS)
 
-                graphics
-                    .moveTo(cos * DIAL_INNER_RADIUS, sin * DIAL_INNER_RADIUS)
-                    .lineTo(cos * spokeEnd, sin * spokeEnd)
-                    .stroke({
-                        width: isSelected ? 6 : 3.5,
-                        color: isSelected ? YELLOW_200 : YELLOW_300,
-                        alpha: isSelected ? 0.95 : 0.42,
-                        cap: 'round',
-                    })
+                const disc = new Graphics()
+                    .circle(0, 0, DIAL_ANCHOR_RADIUS)
+                    .fill({ color: spec.fillColor })
+                container.addChild(disc)
 
-                const nodeX = cos * DIAL_HANDLE_RADIUS
-                const nodeY = sin * DIAL_HANDLE_RADIUS
-
-                const fillColor = isSelected
-                    ? YELLOW_200
-                    : event.type === 'awake'
-                      ? BLUE_900
-                      : BLUE_200
-                const strokeColor = isSelected
-                    ? BLUE_100
-                    : event.type === 'awake'
-                      ? PURPLE_100
-                      : YELLOW_200
-
-                graphics
-                    .circle(nodeX, nodeY, nodeRadius)
-                    .fill({ color: fillColor })
-                    .stroke({ width: isSelected ? 5 : 4, color: strokeColor })
-
-                if (textures) {
-                    const tex = event.type === 'awake' ? textures.up : textures.down
-                    const iconTint = isSelected
-                        ? BLUE_100
-                        : event.type === 'awake'
-                          ? PURPLE_100
-                          : YELLOW_200
-                    const iconSize = 56
-                    const existing = existingSprites.get(event.id)
-                    if (existing) {
-                        if (existing.icon.texture !== tex) {
-                            existing.icon.texture = tex
-                        }
-                        const scale = tex.height > 0 ? iconSize / tex.height : 1
-                        existing.icon.scale.set(scale)
-                        existing.icon.tint = iconTint
-                        existing.icon.position.set(nodeX, nodeY)
-                        existing.icon.rotation = -currentRad
-                    } else {
-                        const icon = createIconSprite(tex, iconSize, iconTint)
-                        icon.position.set(nodeX, nodeY)
-                        icon.rotation = -currentRad
-                        layer.addChild(icon)
-                        existingSprites.set(event.id, { eventId: event.id, icon })
-                    }
-                }
-            }
-
-            for (const [id, entry] of existingSprites) {
-                if (!activeIds.has(id)) {
-                    layer.removeChild(entry.icon)
-                    entry.icon.destroy()
-                    existingSprites.delete(id)
-                }
-            }
-
-            requestRender()
-        }, [requestRender])
-
-        const rebuildWedgeIcons = useCallback(() => {
-            const layer = wedgeIconsLayerRef.current
-            const textures = wedgeTexturesRef.current
-            if (!layer || !textures) return
-
-            const currentWedges = wedgesRef.current
-            const currentRad = currentRotationRef.current
-            const existingSprites = wedgeSpritesRef.current
-            const activeIds = new Set<string>()
-
-            for (const wedge of currentWedges) {
-                activeIds.add(wedge.id)
-                const sweepMin = wedge.endMin - wedge.startMin
-                const midMin = (wedge.startMin + wedge.endMin) / 2
-                const midAngle = minuteToDialAngle(midMin)
-                const arcLength =
-                    (sweepMin / MINUTES_PER_DAY) * Math.PI * 2 * DIAL_WEDGE_ICON_RADIUS
-                const iconSize = Math.min(WEDGE_ICON_MAX_SIZE, arcLength * WEDGE_ICON_ARC_FILL)
-                const visible = iconSize >= WEDGE_ICON_MIN_SIZE
-                const tex = wedge.state === 'asleep' ? textures.asleep : textures.awake
-                const tint = getWedgeIconTint(wedge.state)
-
-                const existing = existingSprites.get(wedge.id)
-                if (existing) {
-                    if (existing.texture !== tex) {
-                        existing.texture = tex
-                    }
-                    const scale = tex.height > 0 ? iconSize / tex.height : 1
-                    existing.scale.set(scale)
-                    existing.tint = tint
-                    existing.alpha = WEDGE_ICON_ALPHA
-                    existing.visible = visible
-                    positionPolar(existing, midAngle, DIAL_WEDGE_ICON_RADIUS)
-                    existing.rotation = -currentRad
-                } else {
-                    const icon = createIconSprite(tex, iconSize, tint)
-                    icon.alpha = WEDGE_ICON_ALPHA
-                    icon.visible = visible
-                    positionPolar(icon, midAngle, DIAL_WEDGE_ICON_RADIUS)
+                let icon: Sprite | null = null
+                if (spec.tex) {
+                    icon = createIconSprite(spec.tex, DIAL_HANDLE_ICON_SIZE, spec.iconTint)
                     icon.rotation = -currentRad
-                    layer.addChild(icon)
-                    existingSprites.set(wedge.id, icon)
+                    container.addChild(icon)
                 }
+
+                layer.addChild(container)
+                anchorNodesRef.current.set(event.id, {
+                    eventId: event.id,
+                    container,
+                    icon,
+                    cos,
+                    sin,
+                    idleAlpha: spec.idleAlpha,
+                })
             }
 
-            for (const [id, sprite] of existingSprites) {
-                if (!activeIds.has(id)) {
-                    layer.removeChild(sprite)
-                    sprite.destroy()
-                    existingSprites.delete(id)
-                }
-            }
-
+            syncAnchorAlphas()
             requestRender()
-        }, [requestRender])
+        }, [requestRender, syncAnchorAlphas])
 
         const measureLayoutMetrics = useCallback(() => {
+            const vw = window.innerWidth
             const vh = window.innerHeight
-            const dialSize =
-                circleRef.current?.offsetWidth || Math.min(window.innerWidth * 1.18, 672)
+            const dialSize = circleRef.current?.offsetWidth || Math.min(vw * 1.18, 672)
             // With transform-origin: center, top edge sits at y + dialSize * (1 - scale) / 2.
             const todayY = vh * TODAY_Y_RATIO + (dialSize * (TODAY_SCALE - 1)) / 2
             const scheduleY = vh * 0.5 - dialSize / 2
-            const metrics = { vh, dialSize, todayY, scheduleY }
+            const scheduleDiameter = Math.min(
+                vw * SCHEDULE_WIDTH_RATIO,
+                vh * SCHEDULE_MAX_HEIGHT_RATIO,
+            )
+            const scheduleScale = scheduleDiameter / Math.max(1, dialSize)
+            const metrics = { vh, dialSize, todayY, scheduleY, scheduleScale }
             layoutCacheRef.current = metrics
             return metrics
         }, [])
@@ -608,15 +572,58 @@ export const Dial = memo(
             [measureLayoutMetrics],
         )
 
+        const applySelectionVisuals = useCallback(() => {
+            const sel = clamp01(selectionStateRef.current.selection)
+            const dim = clamp01(selectionStateRef.current.dim)
+            const handleProgress = clamp01(selectionStateRef.current.handleProgress)
+            const uniforms = wedgeMeshRef.current?.shader?.resources?.selectionUniforms as
+                | { uniforms: { uSelectionProgress: number; uDimProgress: number } }
+                | undefined
+            if (uniforms) {
+                uniforms.uniforms.uSelectionProgress = sel
+                uniforms.uniforms.uDimProgress = dim
+            }
+            const scheduleOverlayAlpha = clamp01((progressStateRef.current.value - 0.35) / 0.65)
+            if (handlesLayerRef.current) {
+                handlesLayerRef.current.alpha = scheduleOverlayAlpha * handleProgress
+            }
+            if (anchorsLayerRef.current) {
+                anchorsLayerRef.current.alpha = scheduleOverlayAlpha
+            }
+            syncHandlePositions()
+            syncAnchorAlphas()
+            requestRender()
+        }, [requestRender, syncAnchorAlphas, syncHandlePositions])
+
+        const rebuildWedgeMesh = useCallback(
+            (
+                nextWedges: readonly ScheduleWedge[],
+                wedgeId: string | null,
+                prevWedgeId: string | null = null,
+            ) => {
+                const mesh = wedgeMeshRef.current
+                if (!mesh) return
+                const prevGeometry = mesh.geometry
+                mesh.geometry = buildDialGeometry(
+                    nextWedges,
+                    DIAL_DISC_RADIUS,
+                    wedgeId,
+                    prevWedgeId,
+                )
+                prevGeometry.destroy()
+            },
+            [],
+        )
+
         const applyProgress = useCallback(
             (progress: number, syncRotation: boolean, preserveOpacity = false) => {
                 const p = clamp01(progress)
                 progressStateRef.current.value = p
                 const circle = circleRef.current
                 if (circle) {
-                    const { todayY, scheduleY } = getLayoutMetrics()
+                    const { todayY, scheduleY, scheduleScale } = getLayoutMetrics()
                     const y = todayY + (scheduleY - todayY) * p
-                    const scale = TODAY_SCALE + (SCHEDULE_SCALE - TODAY_SCALE) * p
+                    const scale = TODAY_SCALE + (scheduleScale - TODAY_SCALE) * p
                     gsap.set(circle, {
                         xPercent: -50,
                         y,
@@ -625,13 +632,13 @@ export const Dial = memo(
                         force3D: true,
                     })
                 }
-                // Fade schedule-only overlays (radial handles & north marker) in smoothly on Schedule
                 const scheduleOverlayAlpha = clamp01((p - 0.35) / 0.65)
                 if (handlesLayerRef.current) {
-                    handlesLayerRef.current.alpha = scheduleOverlayAlpha
+                    handlesLayerRef.current.alpha =
+                        scheduleOverlayAlpha * selectionStateRef.current.handleProgress
                 }
-                if (northMarkerRef.current) {
-                    northMarkerRef.current.alpha = scheduleOverlayAlpha
+                if (anchorsLayerRef.current) {
+                    anchorsLayerRef.current.alpha = scheduleOverlayAlpha
                 }
                 if (syncRotation) {
                     const todayRad = getTodayRotationRad(currentMinuteRef.current)
@@ -715,7 +722,7 @@ export const Dial = memo(
                     },
                 })
             },
-            [applyProgress, applyRotationAndRender, getLayoutMetrics, killAnimations],
+            [applyProgress, applyRotationAndRender, killAnimations],
         )
 
         useImperativeHandle(
@@ -734,9 +741,6 @@ export const Dial = memo(
         useEffect(() => {
             const syncNow = (nowMin: number) => {
                 currentMinuteRef.current = nowMin
-                if (northMarkerRef.current) {
-                    drawNowMarker(northMarkerRef.current, nowMin)
-                }
                 if (
                     modeRef.current === 'today' &&
                     !scrubbingRef.current &&
@@ -744,9 +748,6 @@ export const Dial = memo(
                 ) {
                     applyRotationAndRender(getTodayRotationRad(nowMin), true)
                 } else {
-                    if (modeRef.current === 'schedule') {
-                        requestRender()
-                    }
                     const wholeMin = Math.floor(nowMin) % MINUTES_PER_DAY
                     if (lastEmittedMinuteRef.current !== wholeMin) {
                         lastEmittedMinuteRef.current = wholeMin
@@ -793,12 +794,7 @@ export const Dial = memo(
                 const dtMs = Math.min(100, Math.max(0, now - lastTime))
                 lastTime = now
 
-                if (
-                    !dragRef.current &&
-                    !handleDragRef.current &&
-                    !wedgeDragRef.current &&
-                    momentumRafRef.current === null
-                ) {
+                if (!dragRef.current && momentumRafRef.current === null) {
                     const nextMin =
                         (currentMinuteRef.current + (dtMs / 60_000) * devMode.speedMultiplier) %
                         MINUTES_PER_DAY
@@ -812,7 +808,7 @@ export const Dial = memo(
             return () => {
                 if (rafId !== null) window.cancelAnimationFrame(rafId)
             }
-        }, [devMode.enabled, devMode.speedMultiplier, applyRotationAndRender, requestRender])
+        }, [devMode.enabled, devMode.speedMultiplier, applyRotationAndRender])
 
         useEffect(() => {
             const host = hostRef.current
@@ -849,36 +845,25 @@ export const Dial = memo(
                 rotor.position.set(DIAL_CANVAS_SIZE / 2, DIAL_CANVAS_SIZE / 2)
                 rotorRef.current = rotor
 
-                const geometry = buildDialGeometry(wedgesRef.current, DIAL_DISC_RADIUS)
+                const geometry = buildDialGeometry(
+                    wedgesRef.current,
+                    DIAL_DISC_RADIUS,
+                    selectedWedgeIdRef.current,
+                )
                 const shader = createDialShader(
                     sunTimesRef.current.sunriseMinuteOfDay,
                     sunTimesRef.current.sunsetMinuteOfDay,
                 )
-                const mesh = new Mesh({ geometry, shader })
-                meshRef.current = mesh
-
-                const rays = new Graphics()
-                raysRef.current = rays
-                drawSunRays(
-                    rays,
-                    sunTimesRef.current.sunriseMinuteOfDay,
-                    sunTimesRef.current.sunsetMinuteOfDay,
-                )
-
-                const wedgeIconsLayer = new Container()
-                wedgeIconsLayerRef.current = wedgeIconsLayer
+                const wedgeMesh = new Mesh({ geometry, shader })
+                wedgeMeshRef.current = wedgeMesh
 
                 const handlesLayer = new Container()
-                const handleGraphics = new Graphics()
-                handlesLayer.addChild(handleGraphics)
                 handlesLayerRef.current = handlesLayer
-                handleGraphicsRef.current = handleGraphics
 
-                const northMarker = new Graphics()
-                drawNowMarker(northMarker, currentMinuteRef.current)
-                northMarkerRef.current = northMarker
+                const anchorsLayer = new Container()
+                anchorsLayerRef.current = anchorsLayer
 
-                rotor.addChild(mesh, rays, wedgeIconsLayer, northMarker, handlesLayer)
+                rotor.addChild(wedgeMesh, handlesLayer, anchorsLayer)
                 app.stage.addChild(rotor)
 
                 if (modeRef.current === 'hidden') {
@@ -897,52 +882,37 @@ export const Dial = memo(
                     applyProgress(modeRef.current === 'schedule' ? 1 : 0, true)
                 }
 
-                const [sunriseTex, sunsetTex, upTex, downTex, asleepTex, awakeTex] =
-                    await Promise.all([
-                        loadTintedSvgTexture('/icons/sunrise.svg'),
-                        loadTintedSvgTexture('/icons/sunset.svg'),
-                        loadTintedSvgTexture('/icons/up.svg'),
-                        loadTintedSvgTexture('/icons/down.svg'),
-                        loadTintedSvgTexture('/icons/asleep.svg'),
-                        loadTintedSvgTexture('/icons/awake.svg'),
-                    ])
+                const [sunTex, moonTex, upTex, downTex] = await Promise.all([
+                    loadTintedSvgTexture('/icons/sun.svg'),
+                    loadTintedSvgTexture('/icons/moon.svg'),
+                    loadTintedSvgTexture('/icons/up.svg'),
+                    loadTintedSvgTexture('/icons/down.svg'),
+                ])
 
                 if (cancelled) {
-                    for (const tex of [
-                        sunriseTex,
-                        sunsetTex,
-                        upTex,
-                        downTex,
-                        asleepTex,
-                        awakeTex,
-                    ]) {
+                    for (const tex of [sunTex, moonTex, upTex, downTex]) {
                         tex.destroy(true)
                     }
                     return
                 }
 
-                loadedTextures.push(sunriseTex, sunsetTex, upTex, downTex, asleepTex, awakeTex)
+                loadedTextures.push(sunTex, moonTex, upTex, downTex)
                 handleTexturesRef.current = { up: upTex, down: downTex }
-                wedgeTexturesRef.current = { asleep: asleepTex, awake: awakeTex }
 
-                const barrierIcons: BarrierIcons = {
-                    sunrise: createIconSprite(sunriseTex, 56, YELLOW_200),
-                    sunset: createIconSprite(sunsetTex, 56, YELLOW_200),
+                const axisIcons: AxisIcons = {
+                    sun: createIconSprite(sunTex, DIAL_AXIS_ICON_SIZE, NOON_SUN_ICON_COLOR),
+                    moon: createIconSprite(moonTex, DIAL_AXIS_ICON_SIZE, MIDNIGHT_MOON_ICON_COLOR),
                 }
-                barrierIconsRef.current = barrierIcons
+                axisIcons.sun.position.set(0, -DIAL_AXIS_ICON_RADIUS)
+                axisIcons.moon.position.set(0, DIAL_AXIS_ICON_RADIUS)
+                axisIconsRef.current = axisIcons
 
-                positionBarrierIcons(
-                    barrierIcons,
-                    sunTimesRef.current.sunriseMinuteOfDay,
-                    sunTimesRef.current.sunsetMinuteOfDay,
-                )
+                rotor.addChildAt(axisIcons.sun, 1)
+                rotor.addChildAt(axisIcons.moon, 2)
 
-                // Place barrier icons above rays and below radial handles
-                rotor.addChildAt(barrierIcons.sunrise, 2)
-                rotor.addChildAt(barrierIcons.sunset, 3)
-
-                rebuildWedgeIcons()
                 rebuildHandles()
+                rebuildAnchors()
+                applySelectionVisuals()
                 applyRotationAndRender(currentRotationRef.current)
             }
 
@@ -976,16 +946,14 @@ export const Dial = memo(
                     renderRafRef.current = null
                 }
                 killAnimations()
-                meshRef.current = null
-                raysRef.current = null
-                northMarkerRef.current = null
-                barrierIconsRef.current = null
-                wedgeIconsLayerRef.current = null
-                wedgeSpritesRef.current.clear()
-                wedgeTexturesRef.current = null
+                selectionTweenRef.current?.kill()
+                selectionTweenRef.current = null
+                wedgeMeshRef.current = null
+                axisIconsRef.current = null
                 handlesLayerRef.current = null
-                handleGraphicsRef.current = null
-                handleSpritesRef.current.clear()
+                handleNodesRef.current.clear()
+                anchorsLayerRef.current = null
+                anchorNodesRef.current.clear()
                 handleTexturesRef.current = null
                 rotorRef.current = null
                 appRef.current = null
@@ -999,78 +967,165 @@ export const Dial = memo(
         }, [
             applyProgress,
             applyRotationAndRender,
+            applySelectionVisuals,
+            getLayoutMetrics,
             killAnimations,
             measureLayoutMetrics,
+            rebuildAnchors,
             rebuildHandles,
-            rebuildWedgeIcons,
             requestRender,
         ])
 
         useEffect(() => {
-            const mesh = meshRef.current
             const app = appRef.current
-            if (!mesh || !app) return
+            if (!app || !wedgeMeshRef.current) return
 
-            const prevGeometry = mesh.geometry
-            mesh.geometry = buildDialGeometry(wedges, DIAL_DISC_RADIUS)
-            prevGeometry.destroy()
-            rebuildWedgeIcons()
+            rebuildWedgeMesh(wedges, activeVisualWedgeIdRef.current)
             rebuildHandles()
+            rebuildAnchors()
             app.render()
-        }, [wedges, rebuildHandles, rebuildWedgeIcons])
+        }, [wedges, rebuildAnchors, rebuildHandles, rebuildWedgeMesh])
 
         useEffect(() => {
-            rebuildHandles()
-        }, [selectedEventId, rebuildHandles])
+            selectionTweenRef.current?.kill()
+            selectionTweenRef.current = null
+
+            if (selectedWedgeId !== null) {
+                const prevWedgeId = activeVisualWedgeIdRef.current
+                const switchedWedge = prevWedgeId !== null && prevWedgeId !== selectedWedgeId
+
+                if (switchedWedge) {
+                    prevVisualWedgeIdRef.current = prevWedgeId
+                    if (wedgeMeshRef.current) {
+                        rebuildWedgeMesh(wedgesRef.current, selectedWedgeId, prevWedgeId)
+                    }
+                    selectionStateRef.current.selection = 0
+                    selectionStateRef.current.dim = 1
+                    applySelectionVisuals()
+
+                    const tl = gsap.timeline({
+                        onUpdate: applySelectionVisuals,
+                        onComplete: () => {
+                            selectionTweenRef.current = null
+                            prevVisualWedgeIdRef.current = null
+                            activeVisualWedgeIdRef.current = selectedWedgeId
+                            if (wedgeMeshRef.current) {
+                                rebuildWedgeMesh(wedgesRef.current, selectedWedgeId, null)
+                            }
+                            selectionStateRef.current.selection = 1
+                            selectionStateRef.current.dim = 1
+                            selectionStateRef.current.handleProgress = 1
+                            applySelectionVisuals()
+                        },
+                    })
+                    tl.to(
+                        selectionStateRef.current,
+                        {
+                            selection: 1,
+                            duration: 0.24,
+                            ease: 'power2.out',
+                        },
+                        0,
+                    )
+                    tl.to(
+                        selectionStateRef.current,
+                        {
+                            handleProgress: 0,
+                            duration: 0.11,
+                            ease: 'power2.in',
+                        },
+                        0,
+                    )
+                    tl.call(
+                        () => {
+                            activeVisualWedgeIdRef.current = selectedWedgeId
+                            rebuildHandles()
+                        },
+                        undefined,
+                        0.11,
+                    )
+                    tl.to(
+                        selectionStateRef.current,
+                        {
+                            handleProgress: 1,
+                            duration: 0.16,
+                            ease: 'power2.out',
+                        },
+                        0.11,
+                    )
+                    selectionTweenRef.current = tl
+                    return
+                }
+
+                prevVisualWedgeIdRef.current = null
+                activeVisualWedgeIdRef.current = selectedWedgeId
+                if (wedgeMeshRef.current) {
+                    rebuildWedgeMesh(wedgesRef.current, selectedWedgeId, null)
+                }
+                rebuildHandles()
+
+                selectionTweenRef.current = gsap.to(selectionStateRef.current, {
+                    selection: 1,
+                    dim: 1,
+                    handleProgress: 1,
+                    duration: 0.24,
+                    ease: 'power2.out',
+                    onUpdate: applySelectionVisuals,
+                    onComplete: () => {
+                        selectionTweenRef.current = null
+                        applySelectionVisuals()
+                    },
+                })
+                return
+            }
+
+            if (activeVisualWedgeIdRef.current === null) {
+                selectionStateRef.current.selection = 0
+                selectionStateRef.current.dim = 0
+                selectionStateRef.current.handleProgress = 0
+                applySelectionVisuals()
+                return
+            }
+
+            selectionTweenRef.current = gsap.to(selectionStateRef.current, {
+                selection: 0,
+                dim: 0,
+                handleProgress: 0,
+                duration: 0.2,
+                ease: 'power2.inOut',
+                onUpdate: applySelectionVisuals,
+                onComplete: () => {
+                    selectionTweenRef.current = null
+                    prevVisualWedgeIdRef.current = null
+                    activeVisualWedgeIdRef.current = null
+                    if (wedgeMeshRef.current) {
+                        rebuildWedgeMesh(wedgesRef.current, null, null)
+                    }
+                    rebuildHandles()
+                    applySelectionVisuals()
+                },
+            })
+        }, [selectedWedgeId, applySelectionVisuals, rebuildHandles, rebuildWedgeMesh])
 
         useEffect(() => {
             const app = appRef.current
-            const rays = raysRef.current
-            if (!app || !rays) return
+            const mesh = wedgeMeshRef.current
+            if (!app || !mesh) return
 
-            drawSunRays(rays, sunTimes.sunriseMinuteOfDay, sunTimes.sunsetMinuteOfDay)
-            const mesh = meshRef.current
-            const sunUniforms = mesh?.shader?.resources?.sunUniforms as
+            const sunUniforms = mesh.shader?.resources?.sunUniforms as
                 | { uniforms: { uSunriseMin: number; uSunsetMin: number } }
                 | undefined
             if (sunUniforms) {
                 sunUniforms.uniforms.uSunriseMin = sunTimes.sunriseMinuteOfDay
                 sunUniforms.uniforms.uSunsetMin = sunTimes.sunsetMinuteOfDay
             }
-            const barrierIcons = barrierIconsRef.current
-            if (barrierIcons) {
-                positionBarrierIcons(
-                    barrierIcons,
-                    sunTimes.sunriseMinuteOfDay,
-                    sunTimes.sunsetMinuteOfDay,
-                )
-            }
-            rebuildWedgeIcons()
             app.render()
-        }, [sunTimes.sunriseMinuteOfDay, sunTimes.sunsetMinuteOfDay, rebuildWedgeIcons])
+        }, [sunTimes.sunriseMinuteOfDay, sunTimes.sunsetMinuteOfDay])
 
         useEffect(() => {
             manualControlRef.current = false
             animateTo(mode)
         }, [mode, animateTo])
-
-        const findHitHandle = (clientX: number, clientY: number, rect: DOMRect): string | null => {
-            const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
-            let bestId: string | null = null
-            let bestDist = DIAL_HANDLE_HIT_RADIUS
-
-            for (const event of eventsRef.current) {
-                const angle = minuteToDialAngle(event.minuteOfDay)
-                const hx = Math.cos(angle) * DIAL_HANDLE_RADIUS
-                const hy = Math.sin(angle) * DIAL_HANDLE_RADIUS
-                const dist = Math.hypot(local.x - hx, local.y - hy)
-                if (dist <= bestDist) {
-                    bestDist = dist
-                    bestId = event.id
-                }
-            }
-            return bestId
-        }
 
         const findHitWedge = (
             clientX: number,
@@ -1079,7 +1134,7 @@ export const Dial = memo(
         ): ScheduleWedge | null => {
             const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
             const dist = Math.hypot(local.x, local.y)
-            if (dist < DIAL_INNER_RADIUS - 12 || dist > DIAL_DISC_RADIUS + 12) return null
+            if (dist < DIAL_RING_INNER_RADIUS - 12 || dist > DIAL_DISC_RADIUS + 12) return null
 
             const minute = dialAngleToMinute(Math.atan2(local.y, local.x))
             for (const wedge of wedgesRef.current) {
@@ -1100,60 +1155,15 @@ export const Dial = memo(
 
             const rect = circle.getBoundingClientRect()
 
-            // In Schedule mode, check handles before edge-swipe guard so left-edge handles
-            // (e.g. Morning Wake around 6-7 AM) remain freely draggable on narrow screens.
             if (modeRef.current === 'schedule') {
-                const hitEventId = findHitHandle(event.clientX, event.clientY, rect)
-                if (hitEventId) {
-                    killAnimations()
-                    setIsDragging(true)
-                    circle.setPointerCapture(event.pointerId)
-                    handleDragRef.current = {
-                        pointerId: event.pointerId,
-                        eventId: hitEventId,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        rect,
-                        lastMinute: null,
-                        moved: false,
-                    }
-                    return
-                }
-
                 if (event.pointerType === 'touch' && event.clientX <= EDGE_SWIPE_GUARD_PX) return
 
                 const hitWedge = findHitWedge(event.clientX, event.clientY, rect)
-                if (hitWedge) {
-                    const local = clientToRotorLocal(
-                        event.clientX,
-                        event.clientY,
-                        rect,
-                        currentRotationRef.current,
-                    )
-                    killAnimations()
-                    setIsDragging(true)
-                    circle.setPointerCapture(event.pointerId)
-                    wedgeDragRef.current = {
-                        pointerId: event.pointerId,
-                        startEventId: hitWedge.id,
-                        initialStartMinute: hitWedge.startMin,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        lastAngle: Math.atan2(local.y, local.x),
-                        cumulativeRad: 0,
-                        rect,
-                        lastTargetStart: null,
-                        moved: false,
-                    }
-                    return
-                }
-
-                // Tapping outside handles and wedges clears selection.
-                if (selectedEventIdRef.current) {
-                    onSelectEventRef.current?.(null)
-                }
-                if (selectedWedgeIdRef.current) {
-                    onSelectWedgeRef.current?.(null)
+                scheduleTapRef.current = {
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    wedgeId: hitWedge?.selectionId ?? null,
                 }
                 return
             }
@@ -1189,68 +1199,14 @@ export const Dial = memo(
         }
 
         const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-            const handleDrag = handleDragRef.current
-            if (handleDrag && handleDrag.pointerId === event.pointerId) {
-                const circle = circleRef.current
-                if (!circle) return
-
-                if (!handleDrag.moved) {
-                    const movedDist = Math.hypot(
-                        event.clientX - handleDrag.startX,
-                        event.clientY - handleDrag.startY,
-                    )
-                    if (movedDist < HANDLE_DRAG_THRESHOLD_PX) return
-                    handleDrag.moved = true
-                    onSelectEventRef.current?.(handleDrag.eventId)
-                }
-
-                const local = clientToRotorLocal(
-                    event.clientX,
-                    event.clientY,
-                    handleDrag.rect,
-                    currentRotationRef.current,
+            const scheduleTap = scheduleTapRef.current
+            if (scheduleTap && scheduleTap.pointerId === event.pointerId) {
+                const movedDist = Math.hypot(
+                    event.clientX - scheduleTap.startX,
+                    event.clientY - scheduleTap.startY,
                 )
-                const snappedMinute = snapMinuteOfDay(
-                    dialAngleToMinute(Math.atan2(local.y, local.x)),
-                )
-                if (snappedMinute !== handleDrag.lastMinute) {
-                    handleDrag.lastMinute = snappedMinute
-                    onChangeEventMinuteRef.current?.(handleDrag.eventId, snappedMinute)
-                }
-                return
-            }
-
-            const wedgeDrag = wedgeDragRef.current
-            if (wedgeDrag && wedgeDrag.pointerId === event.pointerId) {
-                const local = clientToRotorLocal(
-                    event.clientX,
-                    event.clientY,
-                    wedgeDrag.rect,
-                    currentRotationRef.current,
-                )
-                const angle = Math.atan2(local.y, local.x)
-                wedgeDrag.cumulativeRad += shortestAngleDelta(wedgeDrag.lastAngle, angle)
-                wedgeDrag.lastAngle = angle
-
-                if (!wedgeDrag.moved) {
-                    const movedDist = Math.hypot(
-                        event.clientX - wedgeDrag.startX,
-                        event.clientY - wedgeDrag.startY,
-                    )
-                    if (movedDist < HANDLE_DRAG_THRESHOLD_PX) return
-                    wedgeDrag.moved = true
-                    onSelectEventRef.current?.(null)
-                    onSelectWedgeRef.current?.(wedgeDrag.startEventId)
-                }
-
-                const rawDeltaMin = (wedgeDrag.cumulativeRad / (Math.PI * 2)) * MINUTES_PER_DAY
-                const snappedDeltaMin = Math.round(rawDeltaMin / SNAP_STEP_MIN) * SNAP_STEP_MIN
-                const targetStart = normalizeMinuteOfDay(
-                    wedgeDrag.initialStartMinute + snappedDeltaMin,
-                )
-                if (targetStart !== wedgeDrag.lastTargetStart) {
-                    wedgeDrag.lastTargetStart = targetStart
-                    onMoveWedgeRef.current?.(wedgeDrag.startEventId, targetStart)
+                if (movedDist > TAP_SLOP_PX) {
+                    scheduleTapRef.current = null
                 }
                 return
             }
@@ -1303,47 +1259,24 @@ export const Dial = memo(
             const nextRad = currentRotationRef.current + delta
             if (modeRef.current === 'today' && devModeRef.current.enabled) {
                 currentMinuteRef.current = rotationRadToFractionalMinute(nextRad)
-                if (northMarkerRef.current) {
-                    drawNowMarker(northMarkerRef.current, currentMinuteRef.current)
-                }
             }
             applyRotationAndRender(nextRad, modeRef.current === 'today')
         }
 
         const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-            const handleDrag = handleDragRef.current
-            if (handleDrag && handleDrag.pointerId === event.pointerId) {
-                handleDragRef.current = null
-                setIsDragging(false)
-                const circle = circleRef.current
-                if (circle?.hasPointerCapture(event.pointerId)) {
-                    circle.releasePointerCapture(event.pointerId)
-                }
-                if (!handleDrag.moved) {
-                    const nextSelection =
-                        selectedEventIdRef.current === handleDrag.eventId
-                            ? null
-                            : handleDrag.eventId
-                    onSelectEventRef.current?.(nextSelection)
-                }
-                return
-            }
-
-            const wedgeDrag = wedgeDragRef.current
-            if (wedgeDrag && wedgeDrag.pointerId === event.pointerId) {
-                wedgeDragRef.current = null
-                setIsDragging(false)
-                const circle = circleRef.current
-                if (circle?.hasPointerCapture(event.pointerId)) {
-                    circle.releasePointerCapture(event.pointerId)
-                }
-                if (!wedgeDrag.moved) {
-                    onSelectEventRef.current?.(null)
-                    const nextWedge =
-                        selectedWedgeIdRef.current === wedgeDrag.startEventId
-                            ? null
-                            : wedgeDrag.startEventId
-                    onSelectWedgeRef.current?.(nextWedge)
+            const scheduleTap = scheduleTapRef.current
+            if (scheduleTap && scheduleTap.pointerId === event.pointerId) {
+                scheduleTapRef.current = null
+                if (event.type === 'pointerup') {
+                    if (scheduleTap.wedgeId) {
+                        const nextWedge =
+                            selectedWedgeIdRef.current === scheduleTap.wedgeId
+                                ? null
+                                : scheduleTap.wedgeId
+                        onSelectWedgeRef.current?.(nextWedge)
+                    } else if (selectedWedgeIdRef.current) {
+                        onSelectWedgeRef.current?.(null)
+                    }
                 }
                 return
             }
@@ -1359,12 +1292,6 @@ export const Dial = memo(
             const circle = circleRef.current
             if (circle?.hasPointerCapture(event.pointerId)) {
                 circle.releasePointerCapture(event.pointerId)
-            }
-
-            // Quick tap on the dial body in Schedule mode clears handle selection.
-            if (!drag.moved && modeRef.current === 'schedule' && selectedEventIdRef.current) {
-                onSelectEventRef.current?.(null)
-                return
             }
 
             let velocity = drag.velocityRadPerMs
@@ -1384,9 +1311,6 @@ export const Dial = memo(
                 const nextRad = currentRotationRef.current + velocity * dt
                 if (modeRef.current === 'today' && devModeRef.current.enabled) {
                     currentMinuteRef.current = rotationRadToFractionalMinute(nextRad)
-                    if (northMarkerRef.current) {
-                        drawNowMarker(northMarkerRef.current, currentMinuteRef.current)
-                    }
                 }
                 applyRotationAndRender(nextRad, modeRef.current === 'today')
                 momentumRafRef.current = window.requestAnimationFrame(coast)
@@ -1407,7 +1331,7 @@ export const Dial = memo(
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerCancel={handlePointerUp}>
-                    <div ref={hostRef} className={styles.rotor} />
+                    <div ref={hostRef} className={styles.rotor} style={DIAL_ROTOR_STYLE} />
                 </div>
             </div>
         )
