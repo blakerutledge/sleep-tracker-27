@@ -27,23 +27,11 @@
     margin: 0;
     display: flex;
     align-items: center;
-    min-block-size: 2.25rem;
+    min-block-size: var(--header-row-height);
     font-size: 1.35rem;
     font-weight: 600;
     line-height: 1;
     flex-shrink: 0;
-}
-
-.scheduleName {
-    margin: -0.1rem 0 0;
-    max-inline-size: 14rem;
-    font-size: 0.82rem;
-    font-weight: 500;
-    line-height: 1.25;
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .iconActionButton {
@@ -62,7 +50,8 @@
         border-color var(--theme-transition),
         color var(--theme-transition);
 
-    &:focus-visible {
+    &:focus-visible,
+    &[data-dragging="true"] {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
     }
@@ -79,13 +68,13 @@
 
     pointer-events: none;
     position: fixed;
-    top: var(--header-top);
+    top: calc(var(--header-top) + (var(--header-row-height) - 2.05rem) / 2);
     right: var(--nav-inset-x);
     z-index: 20;
-    min-block-size: 2.25rem;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.45rem;
 
     > .iconActionButton {
         pointer-events: auto;
@@ -94,8 +83,9 @@
 
 .dirtyActions {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.45rem;
     opacity: 0;
     pointer-events: none;
     transition: opacity 220ms ease;
@@ -107,8 +97,8 @@
 }
 
 .addMenuAnchor {
-    --nav-inset-x: max(1.25rem, calc(env(safe-area-inset-right) + 0.5rem));
-    --fab-inset-y: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    --nav-inset-x: max(var(--bottom-inset-x), calc(env(safe-area-inset-right) + 0.5rem));
+    --fab-inset-y: var(--bottom-inset-y);
 
     pointer-events: auto;
     position: fixed;
@@ -179,7 +169,8 @@
         transform: rotate(45deg);
     }
 
-    &:focus-visible {
+    &:focus-visible,
+    &[data-dragging="true"] {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
     }
@@ -231,7 +222,8 @@
 .listPane {
     flex: 1;
     min-block-size: 0;
-    inline-size: 100%;
+    inline-size: calc(100% + 2.5rem);
+    margin-inline: -1.25rem;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -263,6 +255,63 @@
     }
 }
 
+.dayStatsDock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--bottom-inset-y) + 5.75rem);
+    z-index: 9;
+    pointer-events: none;
+    display: flex;
+    justify-content: center;
+    padding-inline: var(--bottom-inset-x);
+    will-change: opacity;
+    animation: viewFadeIn 220ms ease backwards;
+
+    &[data-exiting="true"] {
+        animation: viewFadeOut 220ms ease both;
+    }
+}
+
+.dayStatsGrid {
+    inline-size: 100%;
+    max-inline-size: 21rem;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem 0.75rem;
+    text-align: center;
+}
+
+.dayStatItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    min-inline-size: 0;
+}
+
+.dayStatSpanFull {
+    grid-column: 1 / -1;
+}
+
+.dayStatLabel {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--subtle);
+    line-height: 1.2;
+}
+
+.dayStatValue {
+    margin: 0;
+    font-size: 1.12rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    line-height: 1.2;
+}
+
 .bottomDock {
     position: fixed;
     left: 0;
@@ -273,8 +322,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-inline: 1.25rem;
-    padding-block-end: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    padding-inline: var(--bottom-inset-x);
+    padding-block-end: var(--bottom-inset-y);
 }
 
 .inspectorSlot {
@@ -294,7 +343,7 @@
     inline-size: 100%;
     max-inline-size: 24rem;
     padding: 0.95rem 1.1rem;
-    border-radius: 1.25rem;
+    border-radius: var(--dock-radius);
     border: 1px solid var(--border);
     display: flex;
     flex-direction: column;
@@ -306,13 +355,14 @@
 }
 
 .wedgeBarHeader {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr) auto minmax(auto, 1fr);
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .wedgeBarTitle {
+    justify-self: start;
     font-size: 1rem;
     font-weight: 600;
     color: var(--fg);
@@ -320,12 +370,78 @@
 }
 
 .wedgeBarMeta {
+    justify-self: center;
     font-size: 1rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     color: var(--fg);
     opacity: 0.7;
     line-height: 1.2;
+}
+
+.wedgeBarEnd {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+}
+
+.wedgeDeleteButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1.85rem;
+    block-size: 1.85rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--error);
+    transition: background-color 140ms ease;
+
+    &:hover,
+    &:focus-visible {
+        background-color: rgb(255 138 128 / 0.14);
+        outline: none;
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--error);
+        outline-offset: 2px;
+    }
+}
+
+.confirmCopy {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.confirmActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+}
+
+.confirmCancelButton,
+.confirmDeleteButton {
+    border-radius: 999px;
+    padding: 0.5rem 1.05rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.confirmCancelButton {
+    border: 1px solid var(--border);
+    background-color: transparent;
+    color: var(--fg);
+}
+
+.confirmDeleteButton {
+    border: 1px solid transparent;
+    background-color: var(--error);
+    color: #1b1c33;
 }
 
 .wedgeSegmentsGrid {
@@ -337,8 +453,11 @@
 .wedgeSegmentColumn {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.3rem;
     min-inline-size: 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
 }
 
 .wedgeSegmentHeading {
@@ -388,12 +507,10 @@
 }
 
 .wedgeTimeLabel {
-    font-size: 0.7rem;
+    font-size: 0.63rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
     color: var(--subtle);
-    text-align: center;
+    text-align: left;
 }
 
 .wedgeTimeInput {
@@ -408,7 +525,7 @@
     border: 1px solid var(--border);
     border-radius: 0.85rem;
     padding: 0.5rem 0.6rem;
-    background-color: var(--bg);
+    background-color: transparent;
     color: var(--fg);
     font: inherit;
     font-size: 1rem;
@@ -420,7 +537,8 @@
         text-align: center;
     }
 
-    &:focus-visible {
+    &:focus-visible,
+    &[data-dragging="true"] {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
     }

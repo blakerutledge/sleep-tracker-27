@@ -51,7 +51,11 @@
     --theme-transition: 600ms ease;
     --font-sans: "Quicksand", system-ui, -apple-system, sans-serif;
     --dial-size: clamp(28rem, 118vw, 42rem);
-    --header-top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
+    --header-top: max(1rem, calc(env(safe-area-inset-top) + 1.5rem));
+    --header-row-height: 2.25rem;
+    --bottom-inset-x: 1.25rem;
+    --bottom-inset-y: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    --dock-radius: 1.25rem;
 
     color-scheme: dark;
     accent-color: var(--accent);
@@ -59,6 +63,14 @@
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.5;
+}
+
+@media (display-mode: standalone) {
+    :root {
+        --bottom-inset-x: 1.5rem;
+        --bottom-inset-y: 1.5rem;
+        --dock-radius: calc(55px - var(--bottom-inset-y));
+    }
 }
 
 *,

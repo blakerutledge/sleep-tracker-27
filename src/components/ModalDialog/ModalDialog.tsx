@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import styles from './ModalDialog.module.scss'
 
 interface ModalDialogProps {
@@ -10,6 +11,8 @@ interface ModalDialogProps {
 
 export const ModalDialog = ({ open, onClose, title, children }: ModalDialogProps) => {
     const dialogRef = useRef<HTMLDialogElement | null>(null)
+    const onCloseRef = useRef(onClose)
+    onCloseRef.current = onClose
     const titleId = useId()
 
     useEffect(() => {
@@ -29,7 +32,7 @@ export const ModalDialog = ({ open, onClose, title, children }: ModalDialogProps
 
         const handleClose = () => {
             dialog.returnValue = ''
-            onClose()
+            onCloseRef.current()
         }
 
         dialog.addEventListener('close', handleClose)
@@ -68,9 +71,9 @@ export const ModalDialog = ({ open, onClose, title, children }: ModalDialogProps
             dialog.removeEventListener('close', handleClose)
             cleanupBackdrop?.()
         }
-    }, [onClose])
+    }, [])
 
-    return (
+    return createPortal(
         <dialog
             ref={dialogRef}
             {...({ closedby: 'any' } as Record<string, string>)}
@@ -98,6 +101,7 @@ export const ModalDialog = ({ open, onClose, title, children }: ModalDialogProps
                 </button>
             </div>
             <div className={styles.dialogBody}>{children}</div>
-        </dialog>
+        </dialog>,
+        document.body,
     )
 }

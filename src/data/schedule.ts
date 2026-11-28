@@ -379,6 +379,221 @@ export const classifyScheduleEvents = (
     })
 }
 
+export type ScheduleListItem =
+    | {
+          kind: 'anchor'
+          id: string
+          state: SleepEventType
+          label: string
+          event: ScheduleEvent
+          startOffsetMin: number
+          endOffsetMin: number
+          isGhost?: boolean
+      }
+    | {
+          kind: 'window'
+          id: string
+          state: SleepEventType
+          label: string
+          startEvent: ScheduleEvent
+          endEvent: ScheduleEvent
+          durationMinutes: number
+          startOffsetMin: number
+          endOffsetMin: number
+          removable: boolean
+          removeLabel: RemoveWindowLabel | null
+      }
+    | {
+          kind: 'span'
+          id: string
+          state: SleepEventType
+          label: string
+          durationMinutes: number
+          startOffsetMin: number
+          endOffsetMin: number
+      }
+
+export const buildScheduleListItems = (events: readonly ScheduleEvent[]): ScheduleListItem[] => {
+    const classified = classifyScheduleEvents(events)
+    const dayWakeCount = classified.filter(
+        (item) => item.kind === 'morning-wake' || item.kind === 'nap-end',
+    ).length
+    const nightSleepCount = classified.filter(
+        (item) => item.kind === 'bedtime' || item.kind === 'night-wake-end',
+    ).length
+    let wakeSpanIndex = 0
+    let nightSpanIndex = 0
+    let cursorMin = 0
+    let morningWakeAnchor: { event: ScheduleEvent; label: string } | null = null
+    const items: ScheduleListItem[] = []
+
+    for (let i = 0; i < classified.length; i += 1) {
+        const current = classified[i]
+        if (!current) continue
+        const startOffsetMin = cursorMin
+        const endOffsetMin = cursorMin + current.durationMinutes
+
+        if (current.kind === 'morning-wake') {
+            morningWakeAnchor = { event: current.event, label: current.label }
+            items.push({
+                kind: 'anchor',
+                id: current.event.id,
+                state: current.event.type,
+                label: current.label,
+                event: current.event,
+                startOffsetMin,
+                endOffsetMin: startOffsetMin,
+            })
+            wakeSpanIndex += 1
+            items.push({
+                kind: 'span',
+                id: `${current.event.id}-span`,
+                state: 'awake',
+                label: dayWakeCount > 1 ? `Wake ${wakeSpanIndex}` : 'Wake',
+                durationMinutes: current.durationMinutes,
+                startOffsetMin,
+                endOffsetMin,
+            })
+            cursorMin = endOffsetMin
+            continue
+        }
+
+        if (current.kind === 'bedtime') {
+            items.push({
+                kind: 'anchor',
+                id: current.event.id,
+                state: current.event.type,
+                label: current.label,
+                event: current.event,
+                startOffsetMin,
+                endOffsetMin: startOffsetMin,
+            })
+            nightSpanIndex += 1
+            items.push({
+                kind: 'span',
+                id: `${current.event.id}-span`,
+                state: 'asleep',
+                label: nightSleepCount > 1 ? `Night Sleep ${nightSpanIndex}` : 'Night Sleep',
+                durationMinutes: current.durationMinutes,
+                startOffsetMin,
+                endOffsetMin,
+            })
+            cursorMin = endOffsetMin
+            continue
+        }
+
+        if (current.kind === 'nap-end') {
+            wakeSpanIndex += 1
+            items.push({
+                kind: 'span',
+                id: `${current.event.id}-span`,
+                state: 'awake',
+                label: dayWakeCount > 1 ? `Wake ${wakeSpanIndex}` : 'Wake',
+                durationMinutes: current.durationMinutes,
+                startOffsetMin,
+                endOffsetMin,
+            })
+            cursorMin = endOffsetMin
+            continue
+        }
+
+        if (current.kind === 'night-wake-end') {
+            nightSpanIndex += 1
+            items.push({
+                kind: 'span',
+                id: `${current.event.id}-span`,
+                state: 'asleep',
+                label: nightSleepCount > 1 ? `Night Sleep ${nightSpanIndex}` : 'Night Sleep',
+                durationMinutes: current.durationMinutes,
+                startOffsetMin,
+                endOffsetMin,
+            })
+            cursorMin = endOffsetMin
+            continue
+        }
+
+        if (current.kind === 'nap-start' || current.kind === 'night-wake-start') {
+            const next = classified[(i + 1) % classified.length]
+            if (!next) continue
+            const label =
+                current.kind === 'nap-start' ? current.label.replace(/ Start$/, '') : current.label
+            items.push({
+                kind: 'window',
+                id: current.event.id,
+                state: current.event.type,
+                label,
+                startEvent: current.event,
+                endEvent: next.event,
+                durationMinutes: current.durationMinutes,
+                startOffsetMin,
+                endOffsetMin,
+                removable: current.removable && current.isPairStart,
+                removeLabel: current.removeLabel,
+            })
+            cursorMin = endOffsetMin
+        }
+    }
+
+    if (morningWakeAnchor) {
+        items.push({
+            kind: 'anchor',
+            id: `${morningWakeAnchor.event.id}-loop`,
+            state: morningWakeAnchor.event.type,
+            label: morningWakeAnchor.label,
+            event: morningWakeAnchor.event,
+            startOffsetMin: MINUTES_PER_DAY,
+            endOffsetMin: MINUTES_PER_DAY,
+            isGhost: true,
+        })
+    }
+
+    return items
+}
+
+export interface ScheduleDayStats {
+    totalSleepMinutes: number
+    totalWakeMinutes: number
+    napCount: number
+    nightWakeCount: number
+    totalNapMinutes: number
+    totalNightWakeMinutes: number
+}
+
+export const getScheduleDayStats = (events: readonly ScheduleEvent[]): ScheduleDayStats => {
+    const classified = classifyScheduleEvents(events)
+    let totalSleepMinutes = 0
+    let totalWakeMinutes = 0
+    let napCount = 0
+    let nightWakeCount = 0
+    let totalNapMinutes = 0
+    let totalNightWakeMinutes = 0
+
+    for (const item of classified) {
+        if (item.event.type === 'asleep') {
+            totalSleepMinutes += item.durationMinutes
+        } else {
+            totalWakeMinutes += item.durationMinutes
+        }
+
+        if (item.kind === 'nap-start') {
+            napCount += 1
+            totalNapMinutes += item.durationMinutes
+        } else if (item.kind === 'night-wake-start') {
+            nightWakeCount += 1
+            totalNightWakeMinutes += item.durationMinutes
+        }
+    }
+
+    return {
+        totalSleepMinutes,
+        totalWakeMinutes,
+        napCount,
+        nightWakeCount,
+        totalNapMinutes,
+        totalNightWakeMinutes,
+    }
+}
+
 export const getScheduleWedgeInfo = (
     startEventId: string,
     events: readonly ScheduleEvent[],
@@ -402,8 +617,8 @@ export const getScheduleWedgeInfo = (
         return {
             startEvent: morningWakeItem.event,
             endEvent: bedtimeItem.event,
-            startLabel: 'Wake Time',
-            endLabel: 'Bed Time',
+            startLabel: 'Start',
+            endLabel: 'End',
             name: 'Day',
             state: 'awake',
             durationMinutes: totalAwakeMinutes,
@@ -427,10 +642,10 @@ export const getScheduleWedgeInfo = (
         const secondarySegmentDurations = nightWakeSegments.map((item) => item.durationMinutes)
         const totalSleepMinutes = segmentDurations.reduce((sum, minutes) => sum + minutes, 0)
         return {
-            startEvent: morningWakeItem.event,
-            endEvent: bedtimeItem.event,
-            startLabel: 'Wake Time',
-            endLabel: 'Bed Time',
+            startEvent: bedtimeItem.event,
+            endEvent: morningWakeItem.event,
+            startLabel: 'Start',
+            endLabel: 'End',
             name: 'Night',
             state: 'asleep',
             durationMinutes: totalSleepMinutes,
@@ -501,6 +716,74 @@ export const clampEventMinute = (
 
     const clampedRel = distToLow <= distToHigh ? gap : high
     return normalizeMinuteOfDay(prev.minuteOfDay + clampedRel)
+}
+
+/**
+ * Shifts a pair of events (`startEventId`, `endEventId`) by `deltaMin` from their drag-start
+ * minutes (`baseStartMin`, `baseEndMin`), preserving their span and preventing crossing any
+ * non-dragged neighboring events.
+ */
+export const moveScheduleWedgeEvents = (
+    events: readonly ScheduleEvent[],
+    startEventId: string,
+    endEventId: string,
+    baseStartMin: number,
+    baseEndMin: number,
+    deltaMin: number,
+    minGap: number = MIN_EVENT_GAP_MIN,
+): ScheduleEvent[] => {
+    const sorted = sortScheduleEvents(events)
+    if (sorted.length <= 2) {
+        return sortScheduleEvents(
+            sorted.map((event) => {
+                if (event.id === startEventId) {
+                    return { ...event, minuteOfDay: normalizeMinuteOfDay(baseStartMin + deltaMin) }
+                }
+                if (event.id === endEventId) {
+                    return { ...event, minuteOfDay: normalizeMinuteOfDay(baseEndMin + deltaMin) }
+                }
+                return event
+            }),
+        )
+    }
+
+    const draggedIds = new Set([startEventId, endEventId])
+    const baseById = new Map<string, number>([
+        [startEventId, baseStartMin],
+        [endEventId, baseEndMin],
+    ])
+
+    let maxBackward = MINUTES_PER_DAY
+    let maxForward = MINUTES_PER_DAY
+
+    for (let i = 0; i < sorted.length; i += 1) {
+        const event = sorted[i]
+        if (!event || !draggedIds.has(event.id)) continue
+        const baseMin = baseById.get(event.id) ?? event.minuteOfDay
+        const prev = sorted[(i - 1 + sorted.length) % sorted.length]
+        const next = sorted[(i + 1) % sorted.length]
+
+        if (prev && !draggedIds.has(prev.id)) {
+            const distBack = (baseMin - prev.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            maxBackward = Math.min(maxBackward, Math.max(0, distBack - minGap))
+        }
+        if (next && !draggedIds.has(next.id)) {
+            const distFwd = (next.minuteOfDay - baseMin + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            maxForward = Math.min(maxForward, Math.max(0, distFwd - minGap))
+        }
+    }
+
+    const clampedDelta = Math.max(-maxBackward, Math.min(maxForward, deltaMin))
+    const nextStart = normalizeMinuteOfDay(baseStartMin + clampedDelta)
+    const nextEnd = normalizeMinuteOfDay(baseEndMin + clampedDelta)
+
+    return sortScheduleEvents(
+        sorted.map((event) => {
+            if (event.id === startEventId) return { ...event, minuteOfDay: nextStart }
+            if (event.id === endEventId) return { ...event, minuteOfDay: nextEnd }
+            return event
+        }),
+    )
 }
 
 export interface AddScheduleWindowResult {

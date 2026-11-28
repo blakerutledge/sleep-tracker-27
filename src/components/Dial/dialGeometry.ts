@@ -19,10 +19,19 @@ export const DIAL_HANDLE_RADIUS = 22
 export const DIAL_ANCHOR_RADIUS = DIAL_HANDLE_RADIUS
 export const DIAL_HANDLE_ICON_SIZE = 39
 export const DIAL_HANDLE_STROKE_WIDTH = 3
+export const DIAL_HANDLE_SELECTED_STROKE_WIDTH = 4
+export const DIAL_HANDLE_SELECTED_RING_GAP = 7
+export const DIAL_HANDLE_SELECTED_RING_RADIUS =
+    DIAL_HANDLE_RADIUS +
+    DIAL_HANDLE_STROKE_WIDTH * 0.5 +
+    DIAL_HANDLE_SELECTED_RING_GAP +
+    DIAL_HANDLE_SELECTED_STROKE_WIDTH * 0.5
 export const DIAL_WEDGE_STROKE_WIDTH = 5
 
 const NOON_MINUTE = 720
-const MAX_RADIANS_PER_SEGMENT = (3 * Math.PI) / 180
+// Fragment shader computes exact polar radius/angle per pixel, so 6-degree chords stay well within
+// the 2px radial pad while halving vertex/index buffer rebuild cost during drag.
+const MAX_RADIANS_PER_SEGMENT = (6 * Math.PI) / 180
 const NIGHT_WAKE_STRIPE_PERIOD_PX = 21
 const RING_MESH_PAD_PX = 2
 const RING_MESH_INNER_RATIO = Math.max(

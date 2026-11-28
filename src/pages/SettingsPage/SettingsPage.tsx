@@ -444,7 +444,7 @@ export const SettingsPage = () => {
                         <div className={styles.updateInfo}>
                             <h2 className={styles.cardTitle}>Dev Mode</h2>
                             <span className={styles.subtleHint}>
-                                Time simulation and dial overrides
+                                Time simulation, dial overrides, and test notifications
                             </span>
                         </div>
                         <button
@@ -505,29 +505,31 @@ export const SettingsPage = () => {
                                     <span className={styles.switchThumb} />
                                 </button>
                             </div>
+
+                            <form
+                                className={styles.alarmForm}
+                                onSubmit={handleScheduleDebugNotification}>
+                                <label className={styles.field}>
+                                    <span className={styles.fieldLabel}>Test Notification</span>
+                                    <input
+                                        type='text'
+                                        className={styles.input}
+                                        value={label}
+                                        onChange={(e) => setLabel(e.target.value)}
+                                        maxLength={80}
+                                        required
+                                    />
+                                </label>
+                                <button
+                                    type='submit'
+                                    className={styles.primaryButton}
+                                    disabled={debugBusy}>
+                                    {debugBusy ? 'Scheduling...' : 'Notify in 30s'}
+                                </button>
+                            </form>
+                            {renderFeedback('debug')}
                         </>
                     )}
-                </div>
-
-                <div className={styles.card}>
-                    <h2 className={styles.cardTitle}>Debug</h2>
-                    <form className={styles.alarmForm} onSubmit={handleScheduleDebugNotification}>
-                        <label className={styles.field}>
-                            <span className={styles.fieldLabel}>Message</span>
-                            <input
-                                type='text'
-                                className={styles.input}
-                                value={label}
-                                onChange={(e) => setLabel(e.target.value)}
-                                maxLength={80}
-                                required
-                            />
-                        </label>
-                        <button type='submit' className={styles.primaryButton} disabled={debugBusy}>
-                            {debugBusy ? 'Scheduling...' : 'Notify in 30s'}
-                        </button>
-                    </form>
-                    {renderFeedback('debug')}
                 </div>
 
                 <div className={styles.card}>

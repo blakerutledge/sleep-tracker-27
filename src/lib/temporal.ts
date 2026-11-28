@@ -89,6 +89,33 @@ export function safePlainDate(isoDate: string | undefined): Temporal.PlainDate |
     }
 }
 
+export const formatBabyAgeCompact = (
+    birthDate: string,
+    refEpochMs: number = Date.now(),
+): string => {
+    const birthPlain = safePlainDate(birthDate)
+    if (!birthPlain) return '—'
+
+    const refDate = epochToZonedDateTime(refEpochMs, getTimeZoneId()).toPlainDate()
+    const totalDays = birthPlain.until(refDate, { largestUnit: 'day' }).days
+    if (totalDays < 0) {
+        return `Due in ${Math.abs(totalDays)}d`
+    }
+
+    const calMonths = birthPlain.until(refDate, { largestUnit: 'month' })
+    if (calMonths.months > 18) {
+        const years = Math.floor(calMonths.months / 12)
+        const remMonths = calMonths.months % 12
+        return remMonths > 0 ? `${years}y ${remMonths}m` : `${years}y`
+    }
+    if (calMonths.months > 0) {
+        return calMonths.days > 0
+            ? `${calMonths.months}m ${calMonths.days}d`
+            : `${calMonths.months}m`
+    }
+    return `${calMonths.days}d`
+}
+
 export function formatDurationObject(dur: Temporal.Duration): string {
     const rounded = dur.round({ largestUnit: 'hour', smallestUnit: 'minute' })
     if (rounded.hours === 0 && rounded.minutes === 0) {

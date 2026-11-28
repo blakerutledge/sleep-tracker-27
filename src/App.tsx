@@ -55,6 +55,8 @@ const App = () => {
     const [displayedScheduleView, setDisplayedScheduleView] = useState<ScheduleViewMode>('dial')
     const [scheduleViewExiting, setScheduleViewExiting] = useState(false)
     const [selectedWedgeId, setSelectedWedgeId] = useState<string | null>(null)
+    const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null)
+    const [draggedEventIds, setDraggedEventIds] = useState<readonly string[]>([])
     const childrenStore = useChildren()
     const schedule = useSchedule(childrenStore.activeChild, childrenStore.setChildActiveScheduleId)
     const dialRef = useRef<DialHandle | null>(null)
@@ -64,9 +66,19 @@ const App = () => {
     const scheduleListActiveRef = useRef<boolean>(false)
     scheduleListActiveRef.current = scheduleViewMode === 'list' || displayedScheduleView === 'list'
 
+    const handleSelectWedge = useCallback(
+        (wedgeId: string | null, initialHandleId: string | null = null) => {
+            setSelectedWedgeId(wedgeId)
+            setSelectedHandleId(initialHandleId)
+        },
+        [],
+    )
+
     useEffect(() => {
         if (activePage !== 'schedule') {
             setSelectedWedgeId(null)
+            setSelectedHandleId(null)
+            setDraggedEventIds([])
             if (viewSwapTimerRef.current !== null) {
                 window.clearTimeout(viewSwapTimerRef.current)
                 viewSwapTimerRef.current = null
@@ -281,12 +293,14 @@ const App = () => {
 
     const handleClearSelection = useCallback(() => {
         setSelectedWedgeId(null)
+        setSelectedHandleId(null)
     }, [])
 
     const handleAddSleepWindow = useCallback(() => {
         const addedId = schedule.addSleepWindow()
         if (addedId && !scheduleListActiveRef.current) {
             setSelectedWedgeId(addedId)
+            setSelectedHandleId(null)
         }
     }, [schedule.addSleepWindow])
 
@@ -294,23 +308,27 @@ const App = () => {
         const addedId = schedule.addNightWake()
         if (addedId && !scheduleListActiveRef.current) {
             setSelectedWedgeId(addedId)
+            setSelectedHandleId(null)
         }
     }, [schedule.addNightWake])
 
     const handleSaveSchedule = useCallback(async () => {
         await schedule.saveDraft()
         setSelectedWedgeId(null)
+        setSelectedHandleId(null)
     }, [schedule.saveDraft])
 
     const handleDiscardSchedule = useCallback(() => {
         schedule.discardDraft()
         setSelectedWedgeId(null)
+        setSelectedHandleId(null)
     }, [schedule.discardDraft])
 
     const handleSelectChild = useCallback(
         (childId: string) => {
             childrenStore.setActiveChildId(childId)
             setSelectedWedgeId(null)
+            setSelectedHandleId(null)
         },
         [childrenStore.setActiveChildId],
     )
@@ -323,6 +341,7 @@ const App = () => {
                 return (
                     <SchedulePage
                         childName={childrenStore.activeChild.name}
+                        childBirthDate={childrenStore.activeChild.birthDate}
                         schedules={schedule.schedules}
                         activeSchedule={schedule.activeSchedule}
                         events={schedule.draftEvents}
@@ -331,6 +350,9 @@ const App = () => {
                         displayedViewMode={displayedScheduleView}
                         isViewExiting={scheduleViewExiting}
                         selectedWedgeId={selectedWedgeId}
+                        selectedHandleId={selectedHandleId}
+                        draggedEventIds={draggedEventIds}
+                        onSelectHandle={setSelectedHandleId}
                         onChangeViewMode={handleChangeScheduleViewMode}
                         onClearSelection={handleClearSelection}
                         onChangeEventMinute={schedule.updateEventMinute}
@@ -368,12 +390,23 @@ const App = () => {
                 hidden={dialHidden}
                 events={dialEvents}
                 selectedWedgeId={selectedWedgeId}
+                selectedHandleId={selectedHandleId}
                 onMinuteChange={setDialMinuteOfDay}
-                onSelectWedge={setSelectedWedgeId}
+                onSelectWedge={handleSelectWedge}
+                onSelectHandle={setSelectedHandleId}
+                onChangeEventMinute={schedule.updateEventMinute}
+                onMoveWedge={schedule.moveWedge}
+                onDragEventIdsChange={setDraggedEventIds}
             />
             <NavMenu
                 activePage={activePage}
                 hasUnsavedSchedule={schedule.isDirty}
+                hideChildSwitcher={
+                    activePage === 'schedule' &&
+                    displayedScheduleView === 'dial' &&
+                    !scheduleViewExiting &&
+                    selectedWedgeId !== null
+                }
                 childrenList={childrenStore.children}
                 activeChildId={childrenStore.activeChildId}
                 onSelectChild={handleSelectChild}

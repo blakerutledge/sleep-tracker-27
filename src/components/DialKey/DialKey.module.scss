@@ -1,7 +1,7 @@
 .key {
     position: fixed;
-    left: max(1.25rem, calc(env(safe-area-inset-left) + 0.5rem));
-    bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    left: max(var(--bottom-inset-x), calc(env(safe-area-inset-left) + 0.5rem));
+    bottom: var(--bottom-inset-y);
     z-index: 15;
     block-size: 2.5rem;
     display: inline-flex;

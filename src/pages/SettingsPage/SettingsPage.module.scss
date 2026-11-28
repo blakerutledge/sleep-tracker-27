@@ -7,7 +7,6 @@
     flex-direction: column;
     align-items: center;
     padding-block-start: var(--header-top);
-    padding-inline: 1.25rem;
     overflow: hidden;
 }
 
@@ -15,17 +14,16 @@
     margin: 0;
     display: flex;
     align-items: center;
-    min-block-size: 2.75rem;
-    font-size: 1.5rem;
-    font-weight: 400;
+    min-block-size: var(--header-row-height);
+    font-size: 1.35rem;
+    font-weight: 600;
     line-height: 1;
     flex-shrink: 0;
 }
 
 .scrollBody {
-    margin-block-start: 1.25rem;
+    margin-block-start: 0.75rem;
     inline-size: 100%;
-    max-inline-size: 26rem;
     flex: 1;
     min-block-size: 0;
     overflow-y: auto;
@@ -33,11 +31,17 @@
     touch-action: pan-y;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 1rem;
-    padding-block-end: max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem));
+    border-block-start: 1px solid var(--border);
+    padding-block-start: 1.15rem;
+    padding-inline: 1.25rem;
+    padding-block-end: calc(var(--bottom-inset-y) + 3.5rem);
 }
 
 .card {
+    inline-size: 100%;
+    max-inline-size: 26rem;
     background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: 1.25rem;

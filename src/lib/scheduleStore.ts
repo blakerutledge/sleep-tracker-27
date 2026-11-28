@@ -6,6 +6,7 @@ import {
     addSleepWindowPair,
     clampEventMinute,
     ensureScheduleAnchors,
+    moveScheduleWedgeEvents,
     normalizeMinuteOfDay,
     PLACEHOLDER_SCHEDULE_EVENTS,
     removeSleepWindowPair,
@@ -135,6 +136,13 @@ export interface ScheduleStoreState {
     isDirty: boolean
     syncMode: 'cloud' | 'local'
     updateEventMinute: (eventId: string, candidateMinute: number) => void
+    moveWedge: (
+        startEventId: string,
+        endEventId: string,
+        baseStartMin: number,
+        baseEndMin: number,
+        deltaMin: number,
+    ) => void
     addSleepWindow: () => string | null
     addNightWake: () => string | null
     removeSleepWindow: (startEventId: string) => void
@@ -286,6 +294,29 @@ export const useSchedule = (
         })
     }, [])
 
+    const moveWedge = useCallback(
+        (
+            startEventId: string,
+            endEventId: string,
+            baseStartMin: number,
+            baseEndMin: number,
+            deltaMin: number,
+        ) => {
+            setDraftEvents((current) => {
+                const next = moveScheduleWedgeEvents(
+                    current,
+                    startEventId,
+                    endEventId,
+                    baseStartMin,
+                    baseEndMin,
+                    deltaMin,
+                )
+                return areEventsEqual(current, next) ? current : next
+            })
+        },
+        [],
+    )
+
     const addSleepWindow = useCallback((): string | null => {
         const { events, addedStartEventId } = addSleepWindowPair(draftEventsRef.current)
         if (addedStartEventId) {
@@ -425,6 +456,7 @@ export const useSchedule = (
         isDirty,
         syncMode,
         updateEventMinute,
+        moveWedge,
         addSleepWindow,
         addNightWake,
         removeSleepWindow,

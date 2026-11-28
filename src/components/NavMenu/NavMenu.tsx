@@ -2,6 +2,7 @@ import gsap from 'gsap'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { ChildProfile } from '#src/lib/childrenStore.ts'
 import { PAGES, type PageId } from '#src/pages/pages.ts'
+import { PALETTE } from '#src/styles/palette.ts'
 import styles from './NavMenu.module.scss'
 
 const SNAP_DURATION_SEC = 0.3
@@ -12,6 +13,7 @@ const SNAP_VELOCITY_PX_MS = 0.35
 interface NavMenuProps {
     activePage: PageId
     hasUnsavedSchedule?: boolean
+    hideChildSwitcher?: boolean
     childrenList?: readonly ChildProfile[]
     activeChildId?: string
     onSelectChild?: (childId: string) => void
@@ -35,6 +37,7 @@ export const NavMenu = memo(
     ({
         activePage,
         hasUnsavedSchedule = false,
+        hideChildSwitcher = false,
         childrenList = [],
         activeChildId,
         onSelectChild,
@@ -42,12 +45,18 @@ export const NavMenu = memo(
     }: NavMenuProps) => {
         const [isOpen, setIsOpen] = useState(false)
         const [isVisible, setIsVisible] = useState(false)
+        const [childMenuOpen, setChildMenuOpen] = useState(false)
 
         const drawerRef = useRef<HTMLDivElement | null>(null)
         const buttonRef = useRef<HTMLButtonElement | null>(null)
+        const childAnchorRef = useRef<HTMLDivElement | null>(null)
         const barTopRef = useRef<HTMLSpanElement | null>(null)
         const barMidRef = useRef<HTMLSpanElement | null>(null)
         const barBotRef = useRef<HTMLSpanElement | null>(null)
+
+        const activeChild =
+            childrenList.find((child) => child.id === activeChildId) ?? childrenList[0] ?? null
+        const canSwitchChild = childrenList.length >= 2 && Boolean(onSelectChild)
 
         const timelineRef = useRef<gsap.core.Timeline | null>(null)
         const snapTweenRef = useRef<gsap.core.Tween | null>(null)
@@ -144,13 +153,13 @@ export const NavMenu = memo(
                     .fromTo(
                         barTop,
                         { y: -7, rotation: 0 },
-                        { y: 0, duration: halfDur, ease: 'none', force3D: true },
+                        { y: 0, duration: halfDur, ease: 'power3.inOut', force3D: true },
                         startAt,
                     )
                     .fromTo(
                         barBot,
                         { y: 7, rotation: 0 },
-                        { y: 0, duration: halfDur, ease: 'none', force3D: true },
+                        { y: 0, duration: halfDur, ease: 'power3.inOut', force3D: true },
                         startAt,
                     )
                     .fromTo(
@@ -159,14 +168,20 @@ export const NavMenu = memo(
                         { opacity: 0, duration: 0.001, ease: 'none' },
                         startAt + halfDur,
                     )
+                    .fromTo(
+                        [barTop, barMid, barBot],
+                        { backgroundColor: PALETTE.white },
+                        { backgroundColor: PALETTE.yellow200, duration: slideDur, ease: 'none' },
+                        startAt,
+                    )
                     .to(
                         barTop,
-                        { rotation: 45, duration: halfDur, ease: 'none', force3D: true },
+                        { rotation: 45, duration: halfDur, ease: 'back.out(1.6)', force3D: true },
                         startAt + halfDur,
                     )
                     .to(
                         barBot,
-                        { rotation: -45, duration: halfDur, ease: 'none', force3D: true },
+                        { rotation: -45, duration: halfDur, ease: 'back.out(1.6)', force3D: true },
                         startAt + halfDur,
                     )
 
@@ -307,6 +322,33 @@ export const NavMenu = memo(
             }
         }, [animateTo, killSnapTween])
 
+        useEffect(() => {
+            if (isOpen || hideChildSwitcher) {
+                setChildMenuOpen(false)
+            }
+        }, [hideChildSwitcher, isOpen])
+
+        useEffect(() => {
+            if (!childMenuOpen) return
+            const handlePointerDown = (event: PointerEvent) => {
+                const target = event.target
+                if (!(target instanceof Element)) return
+                if (childAnchorRef.current?.contains(target)) return
+                setChildMenuOpen(false)
+            }
+            const handleKeyDown = (event: KeyboardEvent) => {
+                if (event.key === 'Escape') {
+                    setChildMenuOpen(false)
+                }
+            }
+            window.addEventListener('pointerdown', handlePointerDown)
+            window.addEventListener('keydown', handleKeyDown)
+            return () => {
+                window.removeEventListener('pointerdown', handlePointerDown)
+                window.removeEventListener('keydown', handleKeyDown)
+            }
+        }, [childMenuOpen])
+
         const handleSelect = (pageId: PageId) => {
             onSelectPage(pageId)
             closeMenu()
@@ -323,23 +365,15 @@ export const NavMenu = memo(
                     aria-hidden={!isVisible}
                     data-visible={isVisible}
                     className={styles.drawer}>
-                    <span className={styles.drawerTitle}>Heaps of Sleeps</span>
-                    {childrenList.length >= 2 && onSelectChild && (
-                        <div className={styles.childSwitcher} role='tablist' aria-label='Children'>
-                            {childrenList.map((child) => (
-                                <button
-                                    key={child.id}
-                                    type='button'
-                                    role='tab'
-                                    aria-selected={child.id === activeChildId}
-                                    tabIndex={isOpen ? 0 : -1}
-                                    className={styles.childChip}
-                                    onClick={() => onSelectChild(child.id)}>
-                                    {child.name}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <div className={styles.drawerHeader}>
+                        <img
+                            src='/icons/logo.svg'
+                            alt=''
+                            aria-hidden='true'
+                            className={styles.drawerLogo}
+                        />
+                        <span className={styles.drawerTitle}>Heaps of Sleeps</span>
+                    </div>
                     <nav aria-label='Pages' className={styles.navList}>
                         {PAGES.map((page) => {
                             const showDirtyPencil = page.id === 'schedule' && hasUnsavedSchedule
@@ -394,6 +428,91 @@ export const NavMenu = memo(
                         <span ref={barBotRef} className={styles.bar} />
                     </span>
                 </button>
+
+                {activeChild && (
+                    <div
+                        ref={childAnchorRef}
+                        className={styles.childAnchor}
+                        data-hidden={hideChildSwitcher}
+                        aria-hidden={hideChildSwitcher}>
+                        {canSwitchChild ? (
+                            <>
+                                <button
+                                    type='button'
+                                    className={styles.childTrigger}
+                                    data-open={childMenuOpen}
+                                    tabIndex={hideChildSwitcher ? -1 : 0}
+                                    aria-haspopup='menu'
+                                    aria-expanded={childMenuOpen}
+                                    aria-label={`Switch child, currently ${activeChild.name}`}
+                                    onClick={() => setChildMenuOpen((open) => !open)}>
+                                    <span className={styles.childTriggerName}>
+                                        {activeChild.name}
+                                    </span>
+                                    <svg
+                                        className={styles.childChevron}
+                                        width='12'
+                                        height='12'
+                                        viewBox='0 0 24 24'
+                                        fill='none'
+                                        aria-hidden='true'>
+                                        <path
+                                            d='M6 15l6-6 6 6'
+                                            stroke='currentColor'
+                                            strokeWidth='2.4'
+                                            strokeLinecap='round'
+                                            strokeLinejoin='round'
+                                        />
+                                    </svg>
+                                </button>
+                                {childMenuOpen && (
+                                    <div
+                                        className={styles.childDropdown}
+                                        role='menu'
+                                        aria-label='Children'>
+                                        {childrenList.map((child) => {
+                                            const selected = child.id === activeChild.id
+                                            return (
+                                                <button
+                                                    key={child.id}
+                                                    type='button'
+                                                    role='menuitemradio'
+                                                    aria-checked={selected}
+                                                    className={styles.childDropdownItem}
+                                                    onClick={() => {
+                                                        onSelectChild?.(child.id)
+                                                        setChildMenuOpen(false)
+                                                    }}>
+                                                    <span className={styles.childDropdownName}>
+                                                        {child.name}
+                                                    </span>
+                                                    {selected && (
+                                                        <svg
+                                                            width='14'
+                                                            height='14'
+                                                            viewBox='0 0 24 24'
+                                                            fill='none'
+                                                            aria-hidden='true'>
+                                                            <path
+                                                                d='M5 13l4 4L19 7'
+                                                                stroke='currentColor'
+                                                                strokeWidth='2.4'
+                                                                strokeLinecap='round'
+                                                                strokeLinejoin='round'
+                                                            />
+                                                        </svg>
+                                                    )}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <span className={styles.childNameStatic}>{activeChild.name}</span>
+                        )}
+                    </div>
+                )}
             </div>
         )
     },

@@ -1,1 +1,1 @@
-export { DialKey } from './DialKey.tsx'
+export { AwakeIcon, DialKey, SleepIcon } from './DialKey.tsx'

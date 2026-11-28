@@ -25,10 +25,13 @@ import {
     buildScheduleWedges,
     classifyScheduleEvents,
     getAnchorEventIds,
+    getScheduleWedgeInfo,
     MINUTES_PER_DAY,
+    normalizeMinuteOfDay,
     PLACEHOLDER_SCHEDULE_EVENTS,
     type ScheduleEvent,
     type ScheduleWedge,
+    SNAP_STEP_MIN,
     sortScheduleEvents,
 } from '#src/data/schedule.ts'
 import { useDevMode } from '#src/lib/devMode.ts'
@@ -48,8 +51,11 @@ import {
     DIAL_HANDLE_ICON_SIZE,
     DIAL_HANDLE_RADIUS,
     DIAL_HANDLE_RING_RADIUS,
+    DIAL_HANDLE_SELECTED_RING_RADIUS,
+    DIAL_HANDLE_SELECTED_STROKE_WIDTH,
     DIAL_HANDLE_STROKE_WIDTH,
     DIAL_RING_INNER_RADIUS,
+    DIAL_RING_OUTER_RADIUS,
     dialAngleToMinute,
     minuteToDialAngle,
 } from './dialGeometry.ts'
@@ -67,8 +73,19 @@ interface DialProps {
     hidden?: boolean
     events?: readonly ScheduleEvent[]
     selectedWedgeId?: string | null
+    selectedHandleId?: string | null
     onMinuteChange?: (minuteOfDay: number) => void
-    onSelectWedge?: (startEventId: string | null) => void
+    onSelectWedge?: (startEventId: string | null, initialHandleId?: string | null) => void
+    onSelectHandle?: (eventId: string | null) => void
+    onChangeEventMinute?: (eventId: string, minuteOfDay: number) => void
+    onMoveWedge?: (
+        startEventId: string,
+        endEventId: string,
+        baseStartMin: number,
+        baseEndMin: number,
+        deltaMin: number,
+    ) => void
+    onDragEventIdsChange?: (eventIds: readonly string[]) => void
 }
 
 interface AxisIcons {
@@ -79,6 +96,7 @@ interface AxisIcons {
 interface HandleNodeEntry {
     eventId: string
     container: Container
+    selectionRing: Graphics
     icon: Sprite | null
     cos: number
     sin: number
@@ -99,20 +117,28 @@ interface DragState {
     velocityRadPerMs: number
 }
 
-interface ScheduleTapState {
+interface ScheduleInteractionState {
     pointerId: number
     startX: number
     startY: number
-    wedgeId: string | null
+    hitWedgeSelectionId: string | null
+    dragKind: 'none' | 'handle' | 'wedge'
+    eventIds: readonly string[]
+    baseMinutes: readonly number[]
+    lastAngle: number
+    accumulatedAngleRad: number
+    lastAppliedDeltaMin: number
+    moved: boolean
 }
 
 const NOON_MINUTE = 720
 const TODAY_SCALE = 2.0
 const TODAY_Y_RATIO = 0.72
+const SCHEDULE_Y_RATIO = 0.45
 const SCHEDULE_WIDTH_RATIO = 0.96
 const SCHEDULE_MAX_HEIGHT_RATIO = 0.68
-const MAX_CANVAS_BACKING_PX = 2048
-const ICON_RASTER_SIZE = 256
+const MAX_CANVAS_BACKING_PX = 1440
+const ICON_RASTER_SIZE = 192
 const TRANSITION_DURATION_SEC = 0.9
 export const DIAL_FADE_DURATION_MS = 220
 const HIDDEN_DURATION_SEC = DIAL_FADE_DURATION_MS / 1000
@@ -121,6 +147,7 @@ const NOON_SUN_ICON_COLOR = hexToNumber(DIAL_COLORS.noonSunIcon)
 const MIDNIGHT_MOON_ICON_COLOR = hexToNumber(DIAL_COLORS.midnightMoonIcon)
 const WAKE_HANDLE_COLOR = hexToNumber(DIAL_COLORS.wakeHandle)
 const SLEEP_HANDLE_COLOR = hexToNumber(DIAL_COLORS.sleepHandle)
+const SELECTED_HANDLE_RING_COLOR = hexToNumber(DIAL_COLORS.selectedHandleRing)
 const MORNING_WAKE_ANCHOR_FILL = hexToNumber(DIAL_COLORS.morningWakeAnchor.fillColor)
 const MORNING_WAKE_ANCHOR_ICON = hexToNumber(DIAL_COLORS.morningWakeAnchor.iconColor)
 const BEDTIME_ANCHOR_FILL = hexToNumber(DIAL_COLORS.bedtimeAnchor.fillColor)
@@ -130,6 +157,8 @@ const EDGE_SWIPE_GUARD_PX = 36
 const SWIPE_LOCK_PX = 8
 const TAP_SLOP_PX = 10
 const HANDLE_SLIDE_OFFSET = 28
+const HANDLE_HIT_RADIUS = DIAL_HANDLE_RADIUS + 20
+const DIAL_DRAG_SENSITIVITY = 0.35
 const MOMENTUM_DAMPING_PER_MS = 0.009
 const MOMENTUM_STOP_RAD_PER_MS = 0.00004
 const MAX_VELOCITY_RAD_PER_MS = 0.012
@@ -248,8 +277,13 @@ export const Dial = memo(
         hidden = false,
         events = PLACEHOLDER_SCHEDULE_EVENTS,
         selectedWedgeId = null,
+        selectedHandleId = null,
         onMinuteChange,
         onSelectWedge,
+        onSelectHandle,
+        onChangeEventMinute,
+        onMoveWedge,
+        onDragEventIdsChange,
     }: DialProps) => {
         const circleRef = useRef<HTMLDivElement | null>(null)
         const hostRef = useRef<HTMLDivElement | null>(null)
@@ -295,7 +329,7 @@ export const Dial = memo(
         const prevVisualWedgeIdRef = useRef<string | null>(null)
         const momentumRafRef = useRef<number | null>(null)
         const dragRef = useRef<DragState | null>(null)
-        const scheduleTapRef = useRef<ScheduleTapState | null>(null)
+        const scheduleInteractionRef = useRef<ScheduleInteractionState | null>(null)
         const manualControlRef = useRef<boolean>(false)
         const scrubbingRef = useRef<boolean>(false)
         const lastEmittedMinuteRef = useRef<number | null>(null)
@@ -317,6 +351,21 @@ export const Dial = memo(
 
         const onSelectWedgeRef = useRef(onSelectWedge)
         onSelectWedgeRef.current = onSelectWedge
+
+        const onSelectHandleRef = useRef(onSelectHandle)
+        onSelectHandleRef.current = onSelectHandle
+
+        const selectedHandleIdRef = useRef(selectedHandleId)
+        selectedHandleIdRef.current = selectedHandleId
+
+        const onChangeEventMinuteRef = useRef(onChangeEventMinute)
+        onChangeEventMinuteRef.current = onChangeEventMinute
+
+        const onMoveWedgeRef = useRef(onMoveWedge)
+        onMoveWedgeRef.current = onMoveWedge
+
+        const onDragEventIdsChangeRef = useRef(onDragEventIdsChange)
+        onDragEventIdsChangeRef.current = onDragEventIdsChange
 
         const eventsRef = useRef(events)
         eventsRef.current = events
@@ -384,6 +433,16 @@ export const Dial = memo(
             [emitMinuteForRad, requestRender, syncUprightIcons],
         )
 
+        const syncSelectedHandleRings = useCallback(() => {
+            const activeHandleId = selectedHandleIdRef.current
+            for (const entry of handleNodesRef.current.values()) {
+                entry.selectionRing.visible = entry.eventId === activeHandleId
+            }
+            for (const entry of anchorNodesRef.current.values()) {
+                entry.selectionRing.visible = entry.eventId === activeHandleId
+            }
+        }, [])
+
         const syncHandlePositions = useCallback(() => {
             const liveRadius =
                 DIAL_HANDLE_RING_RADIUS -
@@ -419,14 +478,10 @@ export const Dial = memo(
             const textures = handleTexturesRef.current
             if (!layer) return
 
-            for (const entry of handleNodesRef.current.values()) {
-                layer.removeChild(entry.container)
-                entry.container.destroy({ children: true })
-            }
-            handleNodesRef.current.clear()
-
             const activeWedgeId = activeVisualWedgeIdRef.current
             const currentRad = currentRotationRef.current
+            const existingNodes = handleNodesRef.current
+            const activeIds = new Set<string>()
 
             const visibleEvents: ScheduleEvent[] = []
             if (activeWedgeId) {
@@ -448,9 +503,31 @@ export const Dial = memo(
             }
 
             for (const event of visibleEvents) {
+                activeIds.add(event.id)
                 const angle = minuteToDialAngle(event.minuteOfDay)
+                const cos = Math.cos(angle)
+                const sin = Math.sin(angle)
+                const existing = existingNodes.get(event.id)
+                if (existing) {
+                    existing.cos = cos
+                    existing.sin = sin
+                    if (existing.icon) {
+                        existing.icon.rotation = -currentRad
+                    }
+                    continue
+                }
+
                 const handleColor = event.type === 'awake' ? WAKE_HANDLE_COLOR : SLEEP_HANDLE_COLOR
                 const container = new Container()
+                const selectionRing = new Graphics()
+                    .circle(0, 0, DIAL_HANDLE_SELECTED_RING_RADIUS)
+                    .stroke({
+                        width: DIAL_HANDLE_SELECTED_STROKE_WIDTH,
+                        color: SELECTED_HANDLE_RING_COLOR,
+                    })
+                selectionRing.visible = event.id === selectedHandleIdRef.current
+                container.addChild(selectionRing)
+
                 const ring = new Graphics()
                     .circle(0, 0, DIAL_HANDLE_RADIUS)
                     .stroke({ width: DIAL_HANDLE_STROKE_WIDTH, color: handleColor })
@@ -465,14 +542,23 @@ export const Dial = memo(
                 }
 
                 layer.addChild(container)
-                handleNodesRef.current.set(event.id, {
+                existingNodes.set(event.id, {
                     eventId: event.id,
                     container,
+                    selectionRing,
                     icon,
-                    cos: Math.cos(angle),
-                    sin: Math.sin(angle),
+                    cos,
+                    sin,
                     idleAlpha: 1,
                 })
+            }
+
+            for (const [id, entry] of existingNodes) {
+                if (!activeIds.has(id)) {
+                    layer.removeChild(entry.container)
+                    entry.container.destroy({ children: true })
+                    existingNodes.delete(id)
+                }
             }
 
             syncHandlePositions()
@@ -484,16 +570,12 @@ export const Dial = memo(
             const textures = handleTexturesRef.current
             if (!layer) return
 
-            for (const entry of anchorNodesRef.current.values()) {
-                layer.removeChild(entry.container)
-                entry.container.destroy({ children: true })
-            }
-            anchorNodesRef.current.clear()
-
             const sorted = sortScheduleEvents(eventsRef.current)
             const { morningWakeId, bedtimeId } = getAnchorEventIds(sorted)
             anchorIdsRef.current = { morningWakeId, bedtimeId }
             const currentRad = currentRotationRef.current
+            const existingNodes = anchorNodesRef.current
+            const activeIds = new Set<string>()
 
             const anchorSpecs = [
                 {
@@ -517,11 +599,44 @@ export const Dial = memo(
                 const event = sorted.find((item) => item.id === spec.id)
                 if (!event) continue
 
+                activeIds.add(event.id)
                 const angle = minuteToDialAngle(event.minuteOfDay)
                 const cos = Math.cos(angle)
                 const sin = Math.sin(angle)
+                const existing = existingNodes.get(event.id)
+                if (existing) {
+                    existing.cos = cos
+                    existing.sin = sin
+                    existing.container.position.set(
+                        cos * DIAL_HANDLE_RING_RADIUS,
+                        sin * DIAL_HANDLE_RING_RADIUS,
+                    )
+                    if (existing.icon) {
+                        existing.icon.rotation = -currentRad
+                    } else if (spec.tex) {
+                        const icon = createIconSprite(
+                            spec.tex,
+                            DIAL_HANDLE_ICON_SIZE,
+                            spec.iconTint,
+                        )
+                        icon.rotation = -currentRad
+                        existing.container.addChild(icon)
+                        existing.icon = icon
+                    }
+                    continue
+                }
+
                 const container = new Container()
                 container.position.set(cos * DIAL_HANDLE_RING_RADIUS, sin * DIAL_HANDLE_RING_RADIUS)
+
+                const selectionRing = new Graphics()
+                    .circle(0, 0, DIAL_HANDLE_SELECTED_RING_RADIUS)
+                    .stroke({
+                        width: DIAL_HANDLE_SELECTED_STROKE_WIDTH,
+                        color: SELECTED_HANDLE_RING_COLOR,
+                    })
+                selectionRing.visible = event.id === selectedHandleIdRef.current
+                container.addChild(selectionRing)
 
                 const disc = new Graphics()
                     .circle(0, 0, DIAL_ANCHOR_RADIUS)
@@ -536,14 +651,23 @@ export const Dial = memo(
                 }
 
                 layer.addChild(container)
-                anchorNodesRef.current.set(event.id, {
+                existingNodes.set(event.id, {
                     eventId: event.id,
                     container,
+                    selectionRing,
                     icon,
                     cos,
                     sin,
                     idleAlpha: spec.idleAlpha,
                 })
+            }
+
+            for (const [id, entry] of existingNodes) {
+                if (!activeIds.has(id)) {
+                    layer.removeChild(entry.container)
+                    entry.container.destroy({ children: true })
+                    existingNodes.delete(id)
+                }
             }
 
             syncAnchorAlphas()
@@ -556,7 +680,7 @@ export const Dial = memo(
             const dialSize = circleRef.current?.offsetWidth || Math.min(vw * 1.18, 672)
             // With transform-origin: center, top edge sits at y + dialSize * (1 - scale) / 2.
             const todayY = vh * TODAY_Y_RATIO + (dialSize * (TODAY_SCALE - 1)) / 2
-            const scheduleY = vh * 0.5 - dialSize / 2
+            const scheduleY = vh * SCHEDULE_Y_RATIO - dialSize / 2
             const scheduleDiameter = Math.min(
                 vw * SCHEDULE_WIDTH_RATIO,
                 vh * SCHEDULE_MAX_HEIGHT_RATIO,
@@ -830,6 +954,7 @@ export const Dial = memo(
                     autoStart: false,
                     resolution: computeCanvasResolution(dialSize),
                     preference: 'webgl',
+                    powerPreference: 'high-performance',
                 })
 
                 if (cancelled) {
@@ -983,8 +1108,8 @@ export const Dial = memo(
             rebuildWedgeMesh(wedges, activeVisualWedgeIdRef.current)
             rebuildHandles()
             rebuildAnchors()
-            app.render()
-        }, [wedges, rebuildAnchors, rebuildHandles, rebuildWedgeMesh])
+            requestRender()
+        }, [wedges, rebuildAnchors, rebuildHandles, rebuildWedgeMesh, requestRender])
 
         useEffect(() => {
             selectionTweenRef.current?.kill()
@@ -1108,6 +1233,11 @@ export const Dial = memo(
         }, [selectedWedgeId, applySelectionVisuals, rebuildHandles, rebuildWedgeMesh])
 
         useEffect(() => {
+            syncSelectedHandleRings()
+            requestRender()
+        }, [selectedHandleId, requestRender, syncSelectedHandleRings])
+
+        useEffect(() => {
             const app = appRef.current
             const mesh = wedgeMeshRef.current
             if (!app || !mesh) return
@@ -1127,6 +1257,38 @@ export const Dial = memo(
             animateTo(mode)
         }, [mode, animateTo])
 
+        const findHitHandle = (
+            clientX: number,
+            clientY: number,
+            rect: DOMRect,
+        ): ScheduleEvent | null => {
+            const activeSelectedId = selectedWedgeIdRef.current
+            const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
+            const candidates: HandleNodeEntry[] = activeSelectedId
+                ? [...handleNodesRef.current.values()]
+                : []
+            const { morningWakeId, bedtimeId } = anchorIdsRef.current
+            if (
+                activeSelectedId === null ||
+                activeSelectedId === morningWakeId ||
+                activeSelectedId === bedtimeId
+            ) {
+                candidates.push(...anchorNodesRef.current.values())
+            }
+
+            let bestId: string | null = null
+            let bestDist = HANDLE_HIT_RADIUS
+            for (const entry of candidates) {
+                const d = Math.hypot(local.x - entry.container.x, local.y - entry.container.y)
+                if (d <= bestDist) {
+                    bestDist = d
+                    bestId = entry.eventId
+                }
+            }
+            if (!bestId) return null
+            return eventsRef.current.find((event) => event.id === bestId) ?? null
+        }
+
         const findHitWedge = (
             clientX: number,
             clientY: number,
@@ -1134,7 +1296,7 @@ export const Dial = memo(
         ): ScheduleWedge | null => {
             const local = clientToRotorLocal(clientX, clientY, rect, currentRotationRef.current)
             const dist = Math.hypot(local.x, local.y)
-            if (dist < DIAL_RING_INNER_RADIUS - 12 || dist > DIAL_DISC_RADIUS + 12) return null
+            if (dist < DIAL_RING_INNER_RADIUS || dist > DIAL_RING_OUTER_RADIUS) return null
 
             const minute = dialAngleToMinute(Math.atan2(local.y, local.x))
             for (const wedge of wedgesRef.current) {
@@ -1156,14 +1318,77 @@ export const Dial = memo(
             const rect = circle.getBoundingClientRect()
 
             if (modeRef.current === 'schedule') {
+                const local = clientToRotorLocal(
+                    event.clientX,
+                    event.clientY,
+                    rect,
+                    currentRotationRef.current,
+                )
+                const pointerAngle = Math.atan2(local.y, local.x)
+                const activeSelectedId = selectedWedgeIdRef.current
+                const hitHandle = findHitHandle(event.clientX, event.clientY, rect)
+
+                // Check handles before the left-edge swipe guard so 6-7 AM anchors remain interactive.
+                if (hitHandle) {
+                    scheduleInteractionRef.current = {
+                        pointerId: event.pointerId,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        hitWedgeSelectionId: activeSelectedId ?? hitHandle.id,
+                        dragKind: activeSelectedId ? 'handle' : 'none',
+                        eventIds: [hitHandle.id],
+                        baseMinutes: [hitHandle.minuteOfDay],
+                        lastAngle: pointerAngle,
+                        accumulatedAngleRad: 0,
+                        lastAppliedDeltaMin: 0,
+                        moved: false,
+                    }
+                    return
+                }
+
                 if (event.pointerType === 'touch' && event.clientX <= EDGE_SWIPE_GUARD_PX) return
 
                 const hitWedge = findHitWedge(event.clientX, event.clientY, rect)
-                scheduleTapRef.current = {
+                const { morningWakeId, bedtimeId } = anchorIdsRef.current
+                const isCumulativeHalf =
+                    activeSelectedId === morningWakeId || activeSelectedId === bedtimeId
+                if (
+                    hitWedge &&
+                    activeSelectedId &&
+                    !isCumulativeHalf &&
+                    hitWedge.selectionId === activeSelectedId
+                ) {
+                    const info = getScheduleWedgeInfo(activeSelectedId, eventsRef.current)
+                    if (info) {
+                        scheduleInteractionRef.current = {
+                            pointerId: event.pointerId,
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            hitWedgeSelectionId: hitWedge.selectionId,
+                            dragKind: 'wedge',
+                            eventIds: [info.startEvent.id, info.endEvent.id],
+                            baseMinutes: [info.startEvent.minuteOfDay, info.endEvent.minuteOfDay],
+                            lastAngle: pointerAngle,
+                            accumulatedAngleRad: 0,
+                            lastAppliedDeltaMin: 0,
+                            moved: false,
+                        }
+                        return
+                    }
+                }
+
+                scheduleInteractionRef.current = {
                     pointerId: event.pointerId,
                     startX: event.clientX,
                     startY: event.clientY,
-                    wedgeId: hitWedge?.selectionId ?? null,
+                    hitWedgeSelectionId: hitWedge?.selectionId ?? null,
+                    dragKind: 'none',
+                    eventIds: [],
+                    baseMinutes: [],
+                    lastAngle: pointerAngle,
+                    accumulatedAngleRad: 0,
+                    lastAppliedDeltaMin: 0,
+                    moved: false,
                 }
                 return
             }
@@ -1199,14 +1424,89 @@ export const Dial = memo(
         }
 
         const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-            const scheduleTap = scheduleTapRef.current
-            if (scheduleTap && scheduleTap.pointerId === event.pointerId) {
-                const movedDist = Math.hypot(
-                    event.clientX - scheduleTap.startX,
-                    event.clientY - scheduleTap.startY,
+            const interaction = scheduleInteractionRef.current
+            if (interaction && interaction.pointerId === event.pointerId) {
+                if (interaction.dragKind === 'none') {
+                    const movedDist = Math.hypot(
+                        event.clientX - interaction.startX,
+                        event.clientY - interaction.startY,
+                    )
+                    if (movedDist > TAP_SLOP_PX) {
+                        scheduleInteractionRef.current = null
+                    }
+                    return
+                }
+
+                const circle = circleRef.current
+                if (!circle) return
+                const rect = circle.getBoundingClientRect()
+                const local = clientToRotorLocal(
+                    event.clientX,
+                    event.clientY,
+                    rect,
+                    currentRotationRef.current,
                 )
-                if (movedDist > TAP_SLOP_PX) {
-                    scheduleTapRef.current = null
+                const angle = Math.atan2(local.y, local.x)
+
+                if (!interaction.moved) {
+                    const movedDist = Math.hypot(
+                        event.clientX - interaction.startX,
+                        event.clientY - interaction.startY,
+                    )
+                    if (movedDist < SWIPE_LOCK_PX) return
+                    interaction.moved = true
+                    interaction.lastAngle = angle
+                    setIsDragging(true)
+                    circle.setPointerCapture(event.pointerId)
+                    onDragEventIdsChangeRef.current?.(interaction.eventIds)
+                    onSelectHandleRef.current?.(
+                        interaction.dragKind === 'handle'
+                            ? (interaction.eventIds[0] ?? null)
+                            : null,
+                    )
+                    return
+                }
+
+                const deltaAngle = shortestAngleDelta(interaction.lastAngle, angle)
+                interaction.lastAngle = angle
+                interaction.accumulatedAngleRad += deltaAngle
+
+                const rawDeltaMin =
+                    (interaction.accumulatedAngleRad / (Math.PI * 2)) *
+                    MINUTES_PER_DAY *
+                    DIAL_DRAG_SENSITIVITY
+                const snappedDeltaMin = Math.round(rawDeltaMin / SNAP_STEP_MIN) * SNAP_STEP_MIN
+                if (snappedDeltaMin === interaction.lastAppliedDeltaMin) return
+                interaction.lastAppliedDeltaMin = snappedDeltaMin
+
+                if (interaction.dragKind === 'handle') {
+                    const eventId = interaction.eventIds[0]
+                    const baseMin = interaction.baseMinutes[0]
+                    if (eventId !== undefined && baseMin !== undefined) {
+                        onChangeEventMinuteRef.current?.(
+                            eventId,
+                            normalizeMinuteOfDay(baseMin + snappedDeltaMin),
+                        )
+                    }
+                } else {
+                    const startId = interaction.eventIds[0]
+                    const endId = interaction.eventIds[1]
+                    const baseStart = interaction.baseMinutes[0]
+                    const baseEnd = interaction.baseMinutes[1]
+                    if (
+                        startId !== undefined &&
+                        endId !== undefined &&
+                        baseStart !== undefined &&
+                        baseEnd !== undefined
+                    ) {
+                        onMoveWedgeRef.current?.(
+                            startId,
+                            endId,
+                            baseStart,
+                            baseEnd,
+                            snappedDeltaMin,
+                        )
+                    }
                 }
                 return
             }
@@ -1264,15 +1564,41 @@ export const Dial = memo(
         }
 
         const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-            const scheduleTap = scheduleTapRef.current
-            if (scheduleTap && scheduleTap.pointerId === event.pointerId) {
-                scheduleTapRef.current = null
+            const interaction = scheduleInteractionRef.current
+            if (interaction && interaction.pointerId === event.pointerId) {
+                scheduleInteractionRef.current = null
+                if (interaction.moved) {
+                    setIsDragging(false)
+                    const circle = circleRef.current
+                    if (circle?.hasPointerCapture(event.pointerId)) {
+                        circle.releasePointerCapture(event.pointerId)
+                    }
+                    onDragEventIdsChangeRef.current?.([])
+                    return
+                }
                 if (event.type === 'pointerup') {
-                    if (scheduleTap.wedgeId) {
+                    if (interaction.dragKind === 'handle') {
+                        const handleId = interaction.eventIds[0] ?? null
+                        if (handleId) {
+                            onSelectHandleRef.current?.(
+                                selectedHandleIdRef.current === handleId ? null : handleId,
+                            )
+                        }
+                        return
+                    }
+                    if (interaction.hitWedgeSelectionId) {
+                        const tappedAnchorId = interaction.eventIds[0] ?? null
+                        if (tappedAnchorId && selectedWedgeIdRef.current === null) {
+                            onSelectWedgeRef.current?.(
+                                interaction.hitWedgeSelectionId,
+                                tappedAnchorId,
+                            )
+                            return
+                        }
                         const nextWedge =
-                            selectedWedgeIdRef.current === scheduleTap.wedgeId
+                            selectedWedgeIdRef.current === interaction.hitWedgeSelectionId
                                 ? null
-                                : scheduleTap.wedgeId
+                                : interaction.hitWedgeSelectionId
                         onSelectWedgeRef.current?.(nextWedge)
                     } else if (selectedWedgeIdRef.current) {
                         onSelectWedgeRef.current?.(null)

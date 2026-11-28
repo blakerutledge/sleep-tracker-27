@@ -86,6 +86,7 @@ export const DIAL_COLORS = {
     midnightMoonIcon: PALETTE.blue700,
     wakeHandle: PALETTE.blue700,
     sleepHandle: PALETTE.purple200,
+    selectedHandleRing: PALETTE.yellow200,
     morningWakeAnchor: {
         fillColor: PALETTE.blue700,
         iconColor: PALETTE.blue100,
